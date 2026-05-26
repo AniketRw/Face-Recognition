@@ -138,6 +138,43 @@ def get_db_connection(
         timeout=5
     )
 
+def get_client_id(conn):
+
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT Value
+        FROM Options2
+        WHERE Name =
+        'RSPL_ClientID'
+    """)
+
+    row = cursor.fetchone()
+
+    if row:
+        return str(row[0])
+
+    return "default"
+
+def get_client_paths(client_id):
+
+    base_path = (
+        f"/data/customers/"
+        f"{client_id}"
+    )
+
+    os.makedirs(
+        base_path,
+        exist_ok=True
+    )
+
+    return {
+        "faiss":
+            f"{base_path}/face_index.faiss",
+
+        "mapping":
+            f"{base_path}/user_mapping.json"
+    }
 
 def get_user_from_db(
     userid: int,
@@ -491,10 +528,36 @@ def find_best_user_match(face_vector):
     return candidates[0], "matched"
 
 
-def save_database():
-    faiss.write_index(index, INDEX_PATH)
-    with open(MAPPING_PATH, "w") as file:
-        json.dump(user_mapping, file, indent=2)
+def save_database(
+    index_path=None,
+    mapping_path=None
+):
+
+    index_path = (
+        index_path
+        or INDEX_PATH
+    )
+
+    mapping_path = (
+        mapping_path
+        or MAPPING_PATH
+    )
+
+    faiss.write_index(
+        index,
+        index_path
+    )
+
+    with open(
+        mapping_path,
+        "w"
+    ) as file:
+
+        json.dump(
+            user_mapping,
+            file,
+            indent=2
+        )
 
 @app.get("/db-config")
 def get_db_config():
@@ -698,6 +761,59 @@ def upload_entity(
     db_pass: str = Form(...),
     db_driver: str = Form(...)
 ):
+    connection = get_db_connection(
+    db_server,
+    db_name,
+    db_user,
+    db_pass,
+    db_driver
+    )
+
+    client_id = get_client_id(
+    connection
+)
+
+    connection.close()
+
+    print(
+        "CLIENT ID:",
+        client_id
+    )
+
+    paths = get_client_paths(
+        client_id
+    )
+
+    global INDEX_PATH
+    global MAPPING_PATH
+    global index
+    global user_mapping
+
+    INDEX_PATH = paths["faiss"]
+    MAPPING_PATH = paths["mapping"]
+
+    if os.path.exists(INDEX_PATH):
+        index = faiss.read_index(
+            INDEX_PATH
+        )
+    else:
+        index = faiss.IndexFlatL2(
+            DIMENSION
+        )
+
+    if os.path.exists(
+        MAPPING_PATH
+    ):
+        with open(
+            MAPPING_PATH,
+            "r"
+        ) as file:
+
+            user_mapping = json.load(
+                file
+            )
+    else:
+        user_mapping = {}
     try:
         user_data = get_user_from_db(
             userid,
@@ -789,7 +905,10 @@ def upload_entity(
             "username": username,
         }
 
-    save_database()
+    save_database(
+        INDEX_PATH,
+        MAPPING_PATH
+    )
 
     return {
         "success": True,
@@ -817,6 +936,59 @@ def authenticate(
     db_pass: str = Form(...),
     db_driver: str = Form(...)
 ):
+    connection = get_db_connection(
+        db_server,
+        db_name,
+        db_user,
+        db_pass,
+        db_driver
+    )
+
+    client_id = get_client_id(
+        connection
+    )
+
+    connection.close()
+
+    print(
+        "CLIENT ID:",
+        client_id
+    )
+
+    paths = get_client_paths(
+        client_id
+    )
+
+    global INDEX_PATH
+    global MAPPING_PATH
+    global index
+    global user_mapping
+
+    INDEX_PATH = paths["faiss"]
+    MAPPING_PATH = paths["mapping"]
+
+    if os.path.exists(INDEX_PATH):
+        index = faiss.read_index(
+            INDEX_PATH
+        )
+    else:
+        index = faiss.IndexFlatL2(
+            DIMENSION
+        )
+
+    if os.path.exists(
+        MAPPING_PATH
+    ):
+        with open(
+            MAPPING_PATH,
+            "r"
+        ) as file:
+
+            user_mapping = json.load(
+                file
+            )
+    else:
+        user_mapping = {}
     try:
         if index.ntotal == 0:
             return {
