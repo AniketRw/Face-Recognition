@@ -56,31 +56,45 @@ CONFIG_PATH = os.path.join(
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-
 MATCH_DISTANCE_THRESHOLD = float(
-    config["APP"]["MATCH_DISTANCE_THRESHOLD"]
+    config.get(
+        "APP",
+        "MATCH_DISTANCE_THRESHOLD",
+        fallback="0.45"
+    )
 )
 
 MATCH_MARGIN = float(
-    config["APP"]["MATCH_MARGIN"]
+    config.get(
+        "APP",
+        "MATCH_MARGIN",
+        fallback="0.06"
+    )
 )
 
 MIN_USER_MATCHES = int(
-    config["APP"]["MIN_USER_MATCHES"]
-)
-
-MIN_REGISTRATION_PHOTOS = int(
-    config["APP"]["MIN_REGISTRATION_PHOTOS"]
+    config.get(
+        "APP",
+        "MIN_USER_MATCHES",
+        fallback="1"
+    )
 )
 
 MIN_LOGIN_FRAME_MATCHES = int(
-    config["APP"]["MIN_LOGIN_FRAME_MATCHES"]
+    config.get(
+        "APP",
+        "MIN_LOGIN_FRAME_MATCHES",
+        fallback="1"
+    )
 )
 
 MAX_FACE_ATTEMPTS = int(
-    config["APP"]["MAX_FACE_ATTEMPTS"]
+    config.get(
+        "APP",
+        "MAX_FACE_ATTEMPTS",
+        fallback="3"
+    )
 )
-
 failed_attempts = {}
 
 
