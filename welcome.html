@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Welcome</title>
+
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f4f6f8;
+            font-family: Arial, sans-serif;
+        }
+
+        .welcome-card {
+            background: white;
+            padding: 50px;
+            border-radius: 20px;
+            box-shadow:
+                0 4px 20px rgba(0,0,0,0.2);
+            text-align: center;
+            min-width: 400px;
+        }
+
+        h1 {
+            color: #16a34a;
+            font-size: 42px;
+            margin-bottom: 15px;
+        }
+
+        p {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="welcome-card">
+
+        <h1>
+            ✅ Login Successful
+        </h1>
+
+        <p id="welcomeUser">
+            Welcome User
+        </p>
+
+    </div>
+
+    <script>
+
+        const username =
+            localStorage.getItem(
+                "loggedInUser"
+            );
+
+        const welcomeText =
+            username
+            ? `Welcome ${username}`
+            : "Welcome User";
+
+        // Page text
+        document.getElementById(
+            "welcomeUser"
+        ).innerText =
+            welcomeText;
+
+        // Browser tab title
+        document.title =
+            welcomeText;
+
+    </script>
+
+</body>
+
+</html>

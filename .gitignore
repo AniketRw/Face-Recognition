@@ -1,0 +1,43 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+
+# Local config
+config.ini
+.env
+
+# Face DB
+face_index.faiss
+user_mapping.json
+
+# Build
+dist/
+build/
+*.spec
+
+# Git
+.git
+
+# IDE
+.idea/
+.vscode/
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# Test / old code
+test.py
+workingmain.py
+originalmain.py
+note.txt
+
+test.html
+index.html
