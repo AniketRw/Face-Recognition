@@ -133,21 +133,22 @@ failed_attempts = {}
 
 
 
-if os.path.exists(INDEX_PATH):
-    index = faiss.read_index(INDEX_PATH)
-    print("FAISS LOADED")
-else:
-    index = faiss.IndexFlatL2(DIMENSION)
-    print("NEW FAISS CREATED")
+# if os.path.exists(INDEX_PATH):
+#     index = faiss.read_index(INDEX_PATH)
+#     print("FAISS LOADED")
+# else:
+#     index = faiss.IndexFlatL2(DIMENSION)
+#     print("NEW FAISS CREATED")
 
-if os.path.exists(MAPPING_PATH):
-    with open(MAPPING_PATH, "r") as file:
-        user_mapping = json.load(file)
-        print("User Mapping Loaded")
-else:
-    user_mapping = {}
-    print("New User Mapping")
-
+# if os.path.exists(MAPPING_PATH):
+#     with open(MAPPING_PATH, "r") as file:
+#         user_mapping = json.load(file)
+#         print("User Mapping Loaded")
+# else:
+#     user_mapping = {}
+#     print("New User Mapping")
+index = faiss.IndexFlatL2(DIMENSION)
+user_mapping = {}
 
 def get_db_connection(
     db_server,
