@@ -174,7 +174,7 @@ def get_client_id(conn):
 def get_client_paths(client_id):
 
     base_path = (
-        f"/data/customers/"
+         f"/app/data/"
         f"{client_id}"
     )
 
