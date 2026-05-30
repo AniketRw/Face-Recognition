@@ -1224,7 +1224,11 @@ def authenticate(
             "message":
             "Face Not Detected"
         }
-    
+
+
+print("INDEX PATH:", INDEX_PATH)
+print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
