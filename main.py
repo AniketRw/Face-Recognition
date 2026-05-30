@@ -961,7 +961,7 @@ from typing import Optional, List
 @app.post("/authenticate")
 def authenticate(
     photo: Optional[UploadFile] = File(None),
-    photos: Optional[List[UploadFile]] = File(None)
+    photos: List[UploadFile] = File(...)
 ):
     # DB config from config.ini
     db_server = config["DATABASE"]["SERVER"]
