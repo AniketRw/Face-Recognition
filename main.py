@@ -25,8 +25,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 DIMENSION = 128
-INDEX_PATH = "face_index.faiss"
-MAPPING_PATH = "user_mapping.json"
+# INDEX_PATH = "face_index.faiss"
+# MAPPING_PATH = "user_mapping.json"
+BASE_STORAGE = "/app/data"
+
+os.makedirs(
+    BASE_STORAGE,
+    exist_ok=True
+)
+
+INDEX_PATH = os.path.join(
+    BASE_STORAGE,
+    "face_index.faiss"
+)
+
+MAPPING_PATH = os.path.join(
+    BASE_STORAGE,
+    "user_mapping.json"
+)
+
 MODEL_NAME = "Facenet"
 FACE_CASCADE = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -173,9 +190,9 @@ def get_client_id(conn):
 
 def get_client_paths(client_id):
 
-    base_path = (
-         f"/app/data/"
-        f"{client_id}"
+    base_path = os.path.join(
+        "/app/data",
+        str(client_id)
     )
 
     os.makedirs(
@@ -184,13 +201,15 @@ def get_client_paths(client_id):
     )
 
     return {
-        "faiss":
-            f"{base_path}/face_index.faiss",
-
-        "mapping":
-            f"{base_path}/user_mapping.json"
+        "faiss": os.path.join(
+            base_path,
+            "face_index.faiss"
+        ),
+        "mapping": os.path.join(
+            base_path,
+            "user_mapping.json"
+        )
     }
-
 def get_user_from_db(
     userid: int,
     db_server,
