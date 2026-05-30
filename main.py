@@ -565,7 +565,7 @@ def save_database(
             indent=2
         )
 
-@app.get("/db-config")
+@app.get("/db-config",include_in_schema=False)
 def get_db_config():
 
     config = configparser.ConfigParser()
@@ -591,7 +591,7 @@ def get_db_config():
 
 
 
-@app.post("/manual-login")
+@app.post("/manual-login" ,include_in_schema=False )
 def manual_login(
     username: str = Form(...),
     password: str = Form(...),
@@ -681,22 +681,22 @@ def manual_login(
 def home():
     return FileResponse("login.html")
 
-@app.get("/index.html")
+@app.get("/index.html",include_in_schema=False)
 def index_page():
     return FileResponse("index.html")
 
 
-@app.get("/welcome.html")
+@app.get("/welcome.html",include_in_schema=False)
 def welcome_page():
     return FileResponse("welcome.html")
 
 
-@app.get("/login.html")
+@app.get("/login.html",include_in_schema=False)
 def login_page():
     return FileResponse("login.html")
 
 
-@app.get("/get-user/{userid}")
+@app.get("/get-user/{userid}" ,include_in_schema=False)
 def get_user(userid: int):
 
     try:
@@ -755,7 +755,7 @@ def get_user(userid: int):
             "message": str(e)
         }
     
-@app.post("/users")
+@app.post("/users",include_in_schema=False)
 def users(
     db_server: str = Form(...),
     db_name: str = Form(...),
@@ -955,18 +955,21 @@ def upload_entity(
         "total_vectors": index.ntotal,
     }
 
+from typing import Optional, List
+
 
 @app.post("/authenticate")
 def authenticate(
     photo: Optional[UploadFile] = File(None),
-    photos: Optional[list[UploadFile]] = File(None),
-
-    db_server: str = Form(...),
-    db_name: str = Form(...),
-    db_user: str = Form(...),
-    db_pass: str = Form(...),
-    db_driver: str = Form(...)
+    photos: Optional[List[UploadFile]] = File(None)
 ):
+    # DB config from config.ini
+    db_server = config["DATABASE"]["SERVER"]
+    db_name = config["DATABASE"]["DATABASE"]
+    db_user = config["DATABASE"]["USER"]
+    db_pass = config["DATABASE"]["PASSWORD"]
+    db_driver = config["DATABASE"]["DRIVER"]
+
     connection = get_db_connection(
         db_server,
         db_name,
@@ -975,20 +978,12 @@ def authenticate(
         db_driver
     )
 
-    client_id = get_client_id(
-        connection
-    )
-
+    client_id = get_client_id(connection)
     connection.close()
 
-    print(
-        "CLIENT ID:",
-        client_id
-    )
+    print("CLIENT ID:", client_id)
 
-    paths = get_client_paths(
-        client_id
-    )
+    paths = get_client_paths(client_id)
 
     global INDEX_PATH
     global MAPPING_PATH
@@ -999,67 +994,95 @@ def authenticate(
     MAPPING_PATH = paths["mapping"]
 
     if os.path.exists(INDEX_PATH):
-        index = faiss.read_index(
-            INDEX_PATH
-        )
+        index = faiss.read_index(INDEX_PATH)
     else:
-        index = faiss.IndexFlatL2(
-            DIMENSION
-        )
+        index = faiss.IndexFlatL2(DIMENSION)
 
-    if os.path.exists(
-        MAPPING_PATH
-    ):
-        with open(
-            MAPPING_PATH,
-            "r"
-        ) as file:
-
-            user_mapping = json.load(
-                file
-            )
+    if os.path.exists(MAPPING_PATH):
+        with open(MAPPING_PATH, "r") as file:
+            user_mapping = json.load(file)
     else:
         user_mapping = {}
+
     try:
         if index.ntotal == 0:
             return {
                 "success": False,
                 "matched": False,
-                "message": "No registered faces found",
+                "message": "No registered faces found"
             }
 
-        login_photos = photos if photos else ([photo] if photo else [])
+        login_photos = (
+            photos if photos
+            else [photo] if photo
+            else []
+        )
+
         if not login_photos:
             return {
                 "success": False,
                 "matched": False,
-                "message": "No login photo received",
+                "message": "No login photo received"
             }
 
-        required_frame_matches = min(MIN_LOGIN_FRAME_MATCHES, len(login_photos))
-        print("LOGIN PHOTOS RECEIVED:", len(login_photos))
+        required_frame_matches = min(
+            MIN_LOGIN_FRAME_MATCHES,
+            len(login_photos)
+        )
+
+        print(
+            "LOGIN PHOTOS RECEIVED:",
+            len(login_photos)
+        )
 
         frame_matches = []
         face_detected_count = 0
+        face_box = None
 
         for login_photo in login_photos:
+
             try:
                 image = read_upload_image(login_photo)
-                face_vector, face_box = get_face_vector(image, return_box=True)
+
+                face_vector, face_box = (
+                    get_face_vector(
+                        image,
+                        return_box=True
+                    )
+                )
+
                 face_detected_count += 1
+
             except Exception as e:
-                print("LOGIN FRAME SKIPPED:", e)
+                print(
+                    "LOGIN FRAME SKIPPED:",
+                    e
+                )
                 continue
 
-            match, match_status = find_best_user_match(face_vector)
+            match, match_status = (
+                find_best_user_match(
+                    face_vector
+                )
+            )
+
             if match_status == "matched":
+
                 frame_matches.append(match)
 
                 matched_keys = [
                     existing_match["key"]
-                    for existing_match in frame_matches
+                    for existing_match
+                    in frame_matches
                 ]
-                if matched_keys.count(match["key"]) >= required_frame_matches:
+
+                if (
+                    matched_keys.count(
+                        match["key"]
+                    )
+                    >= required_frame_matches
+                ):
+
                     user = refresh_user_from_db(
                         match["user"],
                         db_server,
@@ -1068,28 +1091,42 @@ def authenticate(
                         db_pass,
                         db_driver
                     )
+
                     username = user["username"]
+
                     scores = [
                         existing_match["score"]
-                        for existing_match in frame_matches
-                        if existing_match["key"] == match["key"]
+                        for existing_match
+                        in frame_matches
+                        if existing_match["key"]
+                        == match["key"]
                     ]
-                    score = sum(scores) / len(scores)
-                    print(f"FACE MATCHED EARLY | USER SCORE: {score:.4f}")
-                    failed_attempts["camera_login"] = 0
+
+                    score = (
+                        sum(scores)
+                        / len(scores)
+                    )
+
+                    failed_attempts[
+                        "camera_login"
+                    ] = 0
 
                     return {
                         "success": True,
                         "matched": True,
-                        "message": f"Welcome {username}",
-                        "userid": user.get("userid"),
-                        "username": username,
-                        "distance": score,
-                        "frame_matches": len(scores),
-                        "face_box": face_box,
+                        "message":
+                        f"Welcome {username}",
+                        "userid":
+                        user.get("userid"),
+                        "username":
+                        username,
+                        "distance":
+                        score,
+                        "frame_matches":
+                        len(scores),
+                        "face_box":
+                        face_box
                     }
-            elif match_status == "ambiguous":
-                print("LOGIN FRAME AMBIGUOUS")
 
         if face_detected_count == 0:
             return {
@@ -1098,105 +1135,40 @@ def authenticate(
                 "show_password_login":
                 False,
                 "message":
-                "Face Not Detected",
-            }
-
-        user_matches = {}
-        for match in frame_matches:
-            key = match["key"]
-            user_matches.setdefault(key, {
-                "user": match["user"],
-                "scores": [],
-            })
-            user_matches[key]["scores"].append(match["score"])
-
-        candidates = []
-
-        for key, value in user_matches.items():
-
-            score = (
-                sum(value["scores"])
-                / len(value["scores"])
-            )
-
-            if (
-                len(value["scores"])
-                >= required_frame_matches
-                and score
-                <= MATCH_DISTANCE_THRESHOLD
-            ):
-
-                candidates.append({
-                    "key": key,
-                    "user": value["user"],
-                    "score": score,
-                    "frame_matches":
-                    len(value["scores"]),
-                })
-
-            candidates.sort(
-                key=lambda candidate:
-                candidate["score"]
-            )
-
-            print(
-                "LOGIN USER CANDIDATES:",
-                candidates
-            )
-
-        if (
-            len(candidates) > 1
-            and candidates[1]["score"] - candidates[0]["score"] < MATCH_MARGIN
-        ):
-            print("FACE MATCH AMBIGUOUS")
-            return {
-                "success": False,
-                "matched": False,
-                "message": "Face match is not clear. Please try again.",
-            }
-
-        if candidates:
-            match = candidates[0]
-            user = refresh_user_from_db(
-                match["user"],
-                db_server,
-                db_name,
-                db_user,
-                db_pass,
-                db_driver
-            )
-            username = user["username"]
-            print(f"FACE MATCHED | USER SCORE: {match['score']:.4f}")
-            failed_attempts["camera_login"] = 0
-
-            return {
-                "success": True,
-                "matched": True,
-                "message": f"Welcome {username}",
-                "userid": user.get("userid"),
-                "username": username,
-                "distance": match["score"],
-                "frame_matches": match["frame_matches"],
-                "face_box": face_box if "face_box" in locals() else None,
+                "Face Not Detected"
             }
 
         print("FACE NOT MATCHED")
 
-        failed_attempts["camera_login"] = (failed_attempts.get("camera_login",0)+ 1)
-        attempts = (failed_attempts["camera_login"])
-        remaining = (MAX_FACE_ATTEMPTS- attempts)
-        print(f"FAILED ATTEMPT: {attempts}")
-        if (attempts>=MAX_FACE_ATTEMPTS):
+        failed_attempts["camera_login"] = (
+            failed_attempts.get(
+                "camera_login",
+                0
+            ) + 1
+        )
+
+        attempts = (
+            failed_attempts[
+                "camera_login"
+            ]
+        )
+
+        remaining = (
+            MAX_FACE_ATTEMPTS
+            - attempts
+        )
+
+        if attempts >= MAX_FACE_ATTEMPTS:
+
             return {
                 "success": False,
-            "matched": False,
-            "show_password_login":
-            True,
-            "message":
-            "Face login failed 3 times. Use username and password."
-        }
+                "matched": False,
+                "show_password_login":
+                True,
+                "message":
+                "Face login failed 3 times. Use username and password."
+            }
 
-# Still attempts left
         return {
             "success": False,
             "matched": False,
@@ -1205,11 +1177,15 @@ def authenticate(
             "message":
             f"Face not matched. {remaining} attempts left.",
             "face_box":
-            face_box if "face_box" in locals() else None,
+            face_box
         }
 
     except Exception as e:
-        print("FACE NOT DETECTED")
+
+        print(
+            "FACE NOT DETECTED"
+        )
+
         print(e)
 
         return {
@@ -1218,9 +1194,9 @@ def authenticate(
             "show_password_login":
             False,
             "message":
-            "Face Not Detected",
+            "Face Not Detected"
         }
-
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
