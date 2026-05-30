@@ -247,7 +247,7 @@
 
                 const response =
                     await fetch(
-                        "http://192.168.200.14:8000/db-config"
+                        "/db-config"
                     );
 
                 dbConfig =
@@ -719,7 +719,7 @@
                 );
 
                 const response = await fetch(
-                    "http://192.168.200.14:8000/authenticate",
+                    "/authenticate",
                     {
                         method: "POST",
                         body: formData
@@ -944,7 +944,7 @@
 
         const response =
             await fetch(
-                "http://192.168.200.14:8000/manual-login",
+                "/manual-login",
                 {
                     method: "POST",
                     body: formData

@@ -10,16 +10,15 @@ import cv2
 import pyodbc
 import configparser
 import sys
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="."), name="static")
-
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+        "http://192.168.200.14:5500"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -673,15 +672,9 @@ def manual_login(
             str(e)
         }
 
-# @app.get("/")
-# def home():
-#     return {"message": "Face Recognition API Running"}
-
 @app.get("/")
 def home():
-    return FileResponse("login.html")
-
-
+    return {"message": "Face Recognition API Running"}
 @app.get("/get-user/{userid}")
 def get_user(userid: int):
 
