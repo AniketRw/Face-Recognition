@@ -36,7 +36,7 @@ os.makedirs(
     BASE_STORAGE,
     exist_ok=True
 )
-print("test redeploy")
+print("test redeploynew")
 INDEX_PATH = os.path.join(
     BASE_STORAGE,
     "face_index.faiss"
