@@ -27,8 +27,11 @@ app.add_middleware(
 DIMENSION = 128
 # INDEX_PATH = "face_index.faiss"
 # MAPPING_PATH = "user_mapping.json"
-BASE_STORAGE = "/app/data"
-
+#BASE_STORAGE = "/app/data"
+BASE_STORAGE = os.getenv(
+    "PERSISTENT_STORAGE",
+    "/tmp/facerecognition"
+)
 os.makedirs(
     BASE_STORAGE,
     exist_ok=True
@@ -191,7 +194,7 @@ def get_client_id(conn):
 def get_client_paths(client_id):
 
     base_path = os.path.join(
-        "/app/data",
+        BASE_STORAGE,
         str(client_id)
     )
 
