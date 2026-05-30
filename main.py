@@ -681,6 +681,20 @@ def manual_login(
 def home():
     return FileResponse("login.html")
 
+@app.get("/index.html")
+def index_page():
+    return FileResponse("index.html")
+
+
+@app.get("/welcome.html")
+def welcome_page():
+    return FileResponse("welcome.html")
+
+
+@app.get("/login.html")
+def login_page():
+    return FileResponse("login.html")
+
 
 @app.get("/get-user/{userid}")
 def get_user(userid: int):
