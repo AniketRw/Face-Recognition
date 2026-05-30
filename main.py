@@ -43,6 +43,7 @@ MIN_LOGIN_FRAME_MATCHES = 2
 
 
 
+
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(
         sys.executable
@@ -81,6 +82,14 @@ MIN_USER_MATCHES = int(
         "APP",
         "MIN_USER_MATCHES",
         fallback="1"
+    )
+)
+
+MIN_REGISTRATION_PHOTOS = int(
+    config.get(
+        "APP",
+        "MIN_REGISTRATION_PHOTOS",
+        fallback="3"
     )
 )
 
