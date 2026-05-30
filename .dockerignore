@@ -1,26 +1,26 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+    __pycache__/
+    *.pyc
+    *.pyo
+    *.pyd
 
-.venv/
-venv/
+    .venv/
+    venv/
 
-config.ini
-face_index.faiss
-user_mapping.json
 
-dist/
-build/
+    face_index.faiss
+    user_mapping.json
 
-.git
-.gitignore
+    dist/
+    build/
 
-*.png
-*.jpg
-*.jpeg
+    .git
+    .gitignore
 
-test.py
-workingmain.py
-originalmain.py
-note.txt
+    *.png
+    *.jpg
+    *.jpeg
+
+    test.py
+    workingmain.py
+    originalmain.py
+    note.txt
