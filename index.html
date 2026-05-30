@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Face Registration</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            width: 450px;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            color: #222;
+        }
+
+        input {
+            width: 90%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        .camera-wrapper {
+            position: relative;
+            width: 350px;
+            margin: auto;
+        }
+
+        video {
+            width: 350px;
+            height: 350px;
+            object-fit: cover;
+            border-radius: 20px;
+            border: 4px solid #007bff;
+            background: black;
+        }
+
+    /* Face guide circle */
+        .face-guide {
+            display: none;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #instruction {
+            color: #007bff;
+            margin-top: 15px;
+        }
+
+        #status {
+            color: green;
+            font-weight: bold;
+        }
+
+        pre {
+            text-align: left;
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 10px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>Face Registration</h1>
+
+        <input
+            type="number"
+            id="userid"
+            placeholder="Enter User ID"
+            oninput="getUsername()"
+        >
+
+        <input
+            type="text"
+            id="username"
+            placeholder="Username"
+            readonly
+        >
+
+        <div class="camera-wrapper">
+
+            <video
+                id="camera"
+                autoplay
+                playsinline
+            ></video>
+
+            
+
+        </div>
+
+        <button id="captureButton">
+            Capture Face
+        </button>
+
+        <h3 id="instruction">
+            Look straight
+        </h3>
+
+        <h3 id="status"></h3>
+
+        <pre id="result"></pre>
+
+        <canvas
+            id="canvas"
+            style="display:none;"
+        ></canvas>
+
+    </div>
+
+    <script>
+
+        const camera =
+            document.getElementById(
+                "camera"
+            );
+
+        const captureButton =
+            document.getElementById(
+                "captureButton"
+            );
+
+        const statusText =
+            document.getElementById(
+                "status"
+            );
+
+        const instruction =
+            document.getElementById(
+                "instruction"
+            );
+
+        const result =
+            document.getElementById(
+                "result"
+            );
+
+        const instructions = [
+            "Look straight",
+            "Turn slightly left",
+            "Turn slightly right",
+            "Look slightly up",
+            "Look straight again"
+        ];
+
+        let currentStep = 0;
+
+        let capturedPhotos = [];
+
+        // Auto username fetch
+        async function getUsername() {
+
+            const userid =
+                document.getElementById(
+                    "userid"
+                ).value.trim();
+
+            const usernameBox =
+                document.getElementById(
+                    "username"
+                );
+
+            if (!userid) {
+
+                usernameBox.value = "";
+                return;
+            }
+
+            try {
+
+                const response =
+                    await fetch(
+                        `/get-user/${userid}`
+                    );
+
+                const data =
+                    await response.json();
+
+                if (data.success) {
+
+                    usernameBox.value = data.username;
+                    statusText.innerText ="";
+                }else {
+                    usernameBox.value ="";
+                    statusText.innerText ="User ID not found";
+                }
+
+            } catch (error) {
+
+                console.log(error);
+
+                usernameBox.value = "";
+
+                statusText.innerText =
+                    "Unable to fetch username";
+            }
+        }
+
+        navigator.mediaDevices
+            .getUserMedia({
+                video: {
+                    width: 640,
+                    height: 480,
+                    facingMode: "user"
+                }
+            })
+            .then(function(stream) {
+
+                camera.srcObject =
+                    stream;
+
+                statusText.innerText =
+                    "Camera ready";
+            })
+            .catch(function(error) {
+
+                statusText.innerText =
+                    "Camera access denied";
+
+                console.log(error);
+            });
+
+        captureButton.addEventListener(
+            "click",
+            capturePhoto
+        );
+
+        function capturePhoto() {
+
+            const userid =
+                document.getElementById(
+                    "userid"
+                ).value.trim();
+
+            const username =
+                document.getElementById(
+                    "username"
+                ).value.trim();
+
+            if (!userid) {
+
+                statusText.innerText =
+                    "Enter User ID";
+
+                return;
+            }
+
+            if (!username) {
+
+                statusText.innerText =
+                    "Invalid User ID";
+
+                return;
+            }
+
+            if (
+                !camera.videoWidth ||
+                !camera.videoHeight
+            ) {
+
+                statusText.innerText =
+                    "Camera is not ready";
+
+                return;
+            }
+
+            const canvas =
+                document.getElementById(
+                    "canvas"
+                );
+
+            const context =
+                canvas.getContext(
+                    "2d"
+                );
+
+            canvas.width =
+                camera.videoWidth;
+
+            canvas.height =
+                camera.videoHeight;
+
+            context.drawImage(
+                camera,
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+
+            canvas.toBlob(
+                function(blob) {
+
+                    capturedPhotos.push(
+                        blob
+                    );
+
+                    currentStep++;
+
+                    statusText.innerText =
+                        `${currentStep}/${instructions.length} photo saved`;
+
+                    if (
+                        currentStep <
+                        instructions.length
+                    ) {
+
+                        instruction.innerText =
+                            instructions[currentStep];
+
+                        captureButton.disabled =
+                            true;
+
+                        setTimeout(
+                            function() {
+
+                                captureButton.disabled =
+                                    false;
+
+                            },
+                            800
+                        );
+
+                        return;
+                    }
+
+                    registerUser(
+                        userid
+                    );
+
+                },
+                "image/jpeg",
+                0.9
+            );
+        }
+
+        async function registerUser(
+            userid
+        ) {
+
+            statusText.innerText =
+                "Registering Face...";
+
+            captureButton.disabled =
+                true;
+
+            const formData =
+                new FormData();
+
+            formData.append(
+                "userid",
+                String(userid)
+            );
+
+            capturedPhotos.forEach(
+                function(photo, index) {
+
+                    formData.append(
+                        "photos",
+                        photo,
+                        `face_${index}.jpg`
+                    );
+
+                }
+            );
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/upload-entity",
+                        {
+                            method: "POST",
+                            body: formData
+                        }
+                    );
+
+                const data =
+                    await response.json();
+
+                statusText.innerText =
+                    data.message;
+
+                result.innerText =
+                    JSON.stringify(
+                        data,
+                        null,
+                        2
+                    );
+
+                currentStep = 0;
+
+                capturedPhotos = [];
+
+                instruction.innerText =
+                    instructions[0];
+
+                if (
+                    !data.success
+                ) {
+
+                    statusText.innerText =
+                        `${data.message} Start again from ${instructions[0]}.`;
+                }
+
+            } catch (error) {
+
+                statusText.innerText =
+                    "Registration failed";
+
+                console.log(
+                    error
+                );
+
+            } finally {
+
+                captureButton.disabled =
+                    false;
+            }
+        }
+
+    </script>
+
+</body>
+
+</html>
