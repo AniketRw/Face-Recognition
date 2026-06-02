@@ -1,43 +1,42 @@
-FROM python:3.10-slim
+FROM python:3.10-slim-bullseye
 
 WORKDIR /app
 
-# System dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    gnupg2 \
-    unixodbc \
-    unixodbc-dev \
-    gcc \
-    g++ \
-    build-essential \
-    libglib2.0-0 \
-    libgl1 \
-    libgomp1 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PERSISTENT_STORAGE=/app/data
 
-# Microsoft SQL ODBC Driver 18
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/11/prod bullseye main" > /etc/apt/sources.list.d/mssql-release.list && \
-    apt-get update && \
+RUN apt-get update && apt-get install -y \
+curl \
+gnupg2\ 
+unixodbc\ 
+unixodbc-dev\ 
+gcc \
+g++ \
+build-essential\ 
+libglib2.0-0 \
+libgl1 \
+libgomp1\ 
+libsm6 \
+libxext6\ 
+libxrender1\ 
+ffmpeg \
+&& rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/apt/keyrings && \ 
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | \ 
+    gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && \ 
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/debian/11/prod bullseye main" > /etc/apt/sources.list.d/mssql-release.list && \ 
+    apt-get update && \ 
     ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
-# Copy requirements
 COPY requirements.txt .
 
-# Upgrade pip
-RUN pip install --upgrade pip
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Install Python packages
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy project
 COPY . .
 
 EXPOSE 8000
 
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

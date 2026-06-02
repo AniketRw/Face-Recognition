@@ -163,7 +163,7 @@ def get_db_connection(
         f"DATABASE={db_name};"
         f"UID={db_user};"
         f"PWD={db_pass};"
-        "Encrypt=no;"
+        "Encrypt=yes;"
         "TrustServerCertificate=yes;"
         "Connection Timeout=30;"
     )
@@ -281,15 +281,51 @@ def get_users_from_db(
         for row in rows
     ]
 
+
 def read_upload_image(photo: UploadFile):
+
     image_bytes = photo.file.read()
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    np_arr = np.frombuffer(
+        image_bytes,
+        np.uint8
+    )
+
+    image = cv2.imdecode(
+        np_arr,
+        cv2.IMREAD_COLOR
+    )
 
     if image is None:
-        raise ValueError("Invalid image file")
+        raise ValueError(
+            "Invalid image file"
+        )
+
+    # Reduce image size for CPU optimization
+    height, width = image.shape[:2]
+
+    max_width = 640
+
+    if width > max_width:
+
+        scale = (
+            max_width / width
+        )
+
+        new_height = int(
+            height * scale
+        )
+
+        image = cv2.resize(
+            image,
+            (
+                max_width,
+                new_height
+            )
+        )
 
     return image
+
 
 
 def crop_face(image):
