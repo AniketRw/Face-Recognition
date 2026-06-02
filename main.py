@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import cv2
 import pyodbc
+print("AVAILABLE DRIVERS:", pyodbc.drivers())
 import configparser
 import sys
 from fastapi.staticfiles import StaticFiles
