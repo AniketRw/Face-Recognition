@@ -485,7 +485,9 @@ def upload_entity(
     INDEX_PATH = paths["faiss"]
     MAPPING_PATH = paths["mapping"]
 
+    print("CHECKING INDEX:", INDEX_PATH)
     if os.path.exists(INDEX_PATH):
+        print("FAISS FOUND - LOADING EXISTING INDEX")
         index = faiss.read_index(INDEX_PATH)
     else:
         index = faiss.IndexFlatL2(DIMENSION)
