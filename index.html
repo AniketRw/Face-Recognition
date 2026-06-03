@@ -1,457 +1,674 @@
+
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Face Registration</title>
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f4f6f9;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
+<meta charset="UTF-8">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
-        .container {
-            background: white;
-            width: 450px;
-            padding: 25px;
-            border-radius: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            text-align: center;
-        }
+<title>Face Registration</title>
 
-        h1 {
-            margin-bottom: 20px;
-            color: #222;
-        }
+<style>
 
-        input {
-            width: 90%;
-            padding: 12px;
-            margin-bottom: 15px;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            font-size: 16px;
-        }
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:
+        'Segoe UI',
+        sans-serif;
+}
 
-        .camera-wrapper {
-            position: relative;
-            width: 350px;
-            margin: auto;
-        }
 
-        video {
-            width: 350px;
-            height: 350px;
-            object-fit: cover;
-            border-radius: 20px;
-            border: 4px solid #007bff;
-            background: black;
-        }
+body{
 
-    /* Face guide circle */
-        .face-guide {
-            display: none;
-        }
+    min-height:100vh;
 
-        button {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 10px;
-            font-size: 16px;
-            cursor: pointer;
-            margin-top: 15px;
-        }
+    display:flex;
+    justify-content:center;
+    align-items:center;
 
-        button:hover {
-            background: #0056b3;
-        }
+    background:
+        linear-gradient(
+            135deg,
+            #0f172a,
+            #111827,
+            #172554
+        );
 
-        #instruction {
-            color: #007bff;
-            margin-top: 15px;
-        }
+    overflow-y:auto;
+    padding:30px 0;
+}
 
-        #status {
-            color: green;
-            font-weight: bold;
-        }
 
-        pre {
-            text-align: left;
-            background: #f8f8f8;
-            padding: 10px;
-            border-radius: 10px;
-            overflow-x: auto;
-        }
-    </style>
+
+.bg-glow{
+
+    position:absolute;
+
+    width:500px;
+    height:500px;
+
+    border-radius:50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(59,130,246,.25),
+            transparent 70%
+        );
+
+    filter:blur(50px);
+
+    animation:
+        floatGlow
+        6s infinite ease-in-out;
+}
+
+.bg-glow.one{
+    top:-120px;
+    left:-120px;
+}
+
+.bg-glow.two{
+    bottom:-120px;
+    right:-120px;
+}
+
+@keyframes floatGlow{
+
+    0%,100%{
+        transform:
+            translateY(0);
+    }
+
+    50%{
+        transform:
+            translateY(-25px);
+    }
+}
+
+
+.card{
+
+    width:500px;
+
+    padding:28px;
+
+    border-radius:30px;
+
+    background:
+        rgba(255,255,255,.08);
+
+    backdrop-filter:
+        blur(20px);
+
+    border:
+        1px solid rgba(
+            255,255,255,.15
+        );
+
+    box-shadow:
+        0 25px 50px
+        rgba(0,0,0,.35);
+
+    text-align:center;
+}
+
+
+.card h1{
+
+    color:white;
+
+    font-size:42px;
+
+    margin-bottom:12px;
+}
+
+.card p{
+
+    color:#cbd5e1;
+
+    margin-bottom:25px;
+}
+
+.input-box{
+
+    width:100%;
+
+    margin-bottom:18px;
+}
+
+.input-box input{
+
+    width:100%;
+
+    padding:16px 18px;
+
+    border-radius:16px;
+
+    border:none;
+
+    outline:none;
+
+    background:
+        rgba(255,255,255,.08);
+
+    color:white;
+
+    font-size:18px;
+
+    border:
+        1px solid rgba(
+            255,255,255,.1
+        );
+
+    transition:.3s;
+}
+
+.input-box input:focus{
+
+    border:
+        1px solid
+        #38bdf8;
+
+    box-shadow:
+        0 0 20px
+        rgba(56,189,248,.3);
+}
+
+.input-box input::placeholder{
+    color:#94a3b8;
+}
+
+.camera-box{
+
+    position:relative;
+
+    width:100%;
+    max-width:360px;
+
+    margin:20px auto;
+
+    border-radius:30px;
+
+    overflow:hidden;
+
+    border:
+        2px solid
+        rgba(59,130,246,.7);
+
+    box-shadow:
+        0 0 35px
+        rgba(59,130,246,.25);
+}
+
+video{
+
+    width:100%;
+
+    display:block;
+
+    transform:
+        scaleX(-1);
+}
+
+.scan-frame{
+
+    position:absolute;
+
+    width:62%;
+    height:72%;
+
+    top:14%;
+    left:19%;
+
+    border:
+        3px solid
+        #38bdf8;
+
+    border-radius:24px;
+
+    box-shadow:
+        0 0 25px
+        rgba(56,189,248,.6);
+
+    animation:
+        pulseFrame
+        2s infinite;
+}
+
+@keyframes pulseFrame{
+
+    0%,100%{
+        transform:scale(1);
+    }
+
+    50%{
+        transform:scale(1.03);
+    }
+}
+
+.scan-line{
+
+    position:absolute;
+
+    width:62%;
+    height:4px;
+
+    left:19%;
+
+    background:
+        linear-gradient(
+            to right,
+            transparent,
+            #38bdf8,
+            transparent
+        );
+
+    box-shadow:
+        0 0 15px
+        #38bdf8;
+
+    animation:
+        scanMove
+        2.5s infinite linear;
+}
+
+@keyframes scanMove{
+
+    0%{
+        top:18%;
+    }
+
+    100%{
+        top:76%;
+    }
+}
+
+.capture-btn{
+
+    width:100%;
+
+    padding:18px;
+
+    border:none;
+
+    border-radius:18px;
+
+    cursor:pointer;
+
+    font-size:18px;
+    font-weight:600;
+
+    color:white;
+
+    background:
+        linear-gradient(
+            90deg,
+            #2563eb,
+            #06b6d4
+        );
+
+    transition:.3s;
+}
+
+.capture-btn:hover{
+
+    transform:
+        translateY(-2px);
+
+    box-shadow:
+        0 10px 25px
+        rgba(37,99,235,.35);
+}
+
+.progress{
+
+    margin-top:18px;
+
+    color:#e2e8f0;
+
+    font-size:18px;
+
+    font-weight:600;
+}
+
+.success{
+    color:#4ade80;
+}
+
+.error{
+    color:#f87171;
+}
+
+</style>
 </head>
 
 <body>
 
-    <div class="container">
+<div class="bg-glow one"></div>
+<div class="bg-glow two"></div>
 
-        <h1>Face Registration</h1>
+<div class="card">
 
-        <input
-            type="number"
-            id="userid"
-            placeholder="Enter User ID"
-            oninput="getUsername()"
-        >
+    <h1>
+        Face Registration
+    </h1>
+
+    <p>
+        Enter user details and
+        capture 5 face photos
+    </p>
+
+    <div class="input-box">
+
+	<input
+    		type="text"
+    		id="userid"
+    		placeholder="Enter User ID"
+    		inputmode="numeric"
+    		pattern="[0-9]*"
+    		oninput="
+        		this.value =
+        		this.value.replace(
+            			/[^0-9]/g,
+            			''
+        		)
+    		"
+	>
+
+
+
+    </div>
+
+    <div class="input-box">
 
         <input
             type="text"
             id="username"
-            placeholder="Username"
-            readonly
+            placeholder="Enter Username"
         >
-
-        <div class="camera-wrapper">
-
-            <video
-                id="camera"
-                autoplay
-                playsinline
-            ></video>
-
-            
-
-        </div>
-
-        <button id="captureButton">
-            Capture Face
-        </button>
-
-        <h3 id="instruction">
-            Look straight
-        </h3>
-
-        <h3 id="status"></h3>
-
-        
-
-        <canvas
-            id="canvas"
-            style="display:none;"
-        ></canvas>
 
     </div>
 
-    <script>
+    <div class="camera-box">
 
-        const camera =
-            document.getElementById(
-                "camera"
-            );
+        <video
+            id="video"
+            autoplay
+            playsinline
+        ></video>
 
-        const captureButton =
-            document.getElementById(
-                "captureButton"
-            );
+        <div class="scan-frame"></div>
 
-        const statusText =
-            document.getElementById(
-                "status"
-            );
+        <div class="scan-line"></div>
 
-        const instruction =
-            document.getElementById(
-                "instruction"
-            );
+    </div>
 
-        const result =
-            document.getElementById(
-                "result"
-            );
+    <button
+        class="capture-btn"
+        onclick="registerFace()"
+    >
+        Capture Face
+    </button>
 
-        const instructions = [
-            "Look straight",
-            "Turn slightly left",
-            "Turn slightly right",
-            "Look slightly up",
-            "Look straight again"
-        ];
+    <div
+        class="progress"
+        id="status"
+    >
+        Camera Starting...
+    </div>
 
-        let currentStep = 0;
+</div>
 
-        let capturedPhotos = [];
+<canvas
+    id="canvas"
+    style="display:none;"
+></canvas>
 
-        // Auto username fetch
-        async function getUsername() {
+<script>
 
-            const userid =
-                document.getElementById(
-                    "userid"
-                ).value.trim();
+```javascript id="1ptl5q"
+const params =
+    new URLSearchParams(
+        window.location.search
+    );
 
-            const usernameBox =
-                document.getElementById(
-                    "username"
-                );
+const CLIENT_ID =
+    params.get(
+        "clientid"
+    );
 
-            if (!userid) {
+if(!CLIENT_ID){
 
-                usernameBox.value = "";
-                return;
-            }
+    alert(
+        "Client ID Missing"
+    );
 
-            try {
+    throw new Error(
+        "Client ID Missing"
+    );
+}
+```
 
-                const response =
-                    await fetch(
-                        `/get-user/${userid}`
-                    );
 
-                const data =
-                    await response.json();
+const video =
+    document.getElementById(
+        "video"
+    );
 
-                if (data.success) {
+const canvas =
+    document.getElementById(
+        "canvas"
+    );
 
-                    usernameBox.value = data.username;
-                    statusText.innerText ="";
-                }else {
-                    usernameBox.value ="";
-                    statusText.innerText ="User ID not found";
-                }
+const statusText =
+    document.getElementById(
+        "status"
+    );
 
-            } catch (error) {
+navigator
+.mediaDevices
+.getUserMedia({
+    video:true
+})
+.then(function(stream){
 
-                console.log(error);
+    video.srcObject =
+        stream;
 
-                usernameBox.value = "";
+    statusText.innerText =
+        "Camera Ready";
 
-                statusText.innerText =
-                    "Unable to fetch username";
-            }
-        }
+})
+.catch(function(error){
 
-        navigator.mediaDevices
-            .getUserMedia({
-                video: {
-                    width: 640,
-                    height: 480,
-                    facingMode: "user"
-                }
-            })
-            .then(function(stream) {
+    statusText.innerText =
+        "Camera Access Denied";
 
-                camera.srcObject =
-                    stream;
+    statusText.classList
+    .add("error");
 
-                statusText.innerText =
-                    "Camera ready";
-            })
-            .catch(function(error) {
+    console.log(error);
+});
 
-                statusText.innerText =
-                    "Camera access denied";
+async function captureFrame(
+    filename
+){
 
-                console.log(error);
-            });
-
-        captureButton.addEventListener(
-            "click",
-            capturePhoto
+    const context =
+        canvas.getContext(
+            "2d"
         );
 
-        function capturePhoto() {
+    canvas.width =
+        video.videoWidth;
 
-            const userid =
-                document.getElementById(
-                    "userid"
-                ).value.trim();
+    canvas.height =
+        video.videoHeight;
 
-            const username =
-                document.getElementById(
-                    "username"
-                ).value.trim();
+    context.drawImage(
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
-            if (!userid) {
+    return new Promise(
+        function(resolve){
 
-                statusText.innerText =
-                    "Enter User ID";
+        canvas.toBlob(
+            function(blob){
 
-                return;
-            }
+                resolve({
+                    blob,
+                    filename
+                });
 
-            if (!username) {
+            },
+            "image/jpeg",
+            0.9
+        );
 
-                statusText.innerText =
-                    "Invalid User ID";
+    });
+}
 
-                return;
-            }
+async function registerFace(){
 
-            if (
-                !camera.videoWidth ||
-                !camera.videoHeight
-            ) {
+    const userid =
+        document.getElementById(
+            "userid"
+        ).value.trim();
 
-                statusText.innerText =
-                    "Camera is not ready";
+    const username =
+        document.getElementById(
+            "username"
+        ).value.trim();
 
-                return;
-            }
+    if(
+        !userid ||
+        !username
+    ){
 
-            const canvas =
-                document.getElementById(
-                    "canvas"
-                );
+        alert(
+            "Enter User ID and Username"
+        );
 
-            const context =
-                canvas.getContext(
-                    "2d"
-                );
+        return;
+    }
 
-            canvas.width =
-                camera.videoWidth;
+    const photos = [];
 
-            canvas.height =
-                camera.videoHeight;
+    for(
+        let i = 1;
+        i <= 5;
+        i++
+    ){
 
-            context.drawImage(
-                camera,
-                0,
-                0,
-                canvas.width,
-                canvas.height
+        statusText.innerText =
+            "Capturing Photo "
+            + i +
+            "/5";
+
+        const frame =
+            await captureFrame(
+                "face_"
+                + i +
+                ".jpg"
             );
 
-            canvas.toBlob(
-                function(blob) {
+        photos.push(
+            frame
+        );
 
-                    capturedPhotos.push(
-                        blob
-                    );
+        await new Promise(
+            r => setTimeout(
+                r,
+                500
+            )
+        );
+    }
 
-                    currentStep++;
+    statusText.innerText =
+        "Registering Face...";
 
-                    statusText.innerText =
-                        `${currentStep}/${instructions.length} photo saved`;
+    try{
 
-                    if (
-                        currentStep <
-                        instructions.length
-                    ) {
+        const formData =
+            new FormData();
 
-                        instruction.innerText =
-                            instructions[currentStep];
+        formData.append(
+            "clientid",
+            CLIENT_ID
+        );
 
-                        captureButton.disabled =
-                            true;
-
-                        setTimeout(
-                            function() {
-
-                                captureButton.disabled =
-                                    false;
-
-                            },
-                            800
-                        );
-
-                        return;
-                    }
-
-                    registerUser(
-                        userid
-                    );
-
-                },
-                "image/jpeg",
-                0.9
-            );
-        }
-
-        async function registerUser(
+        formData.append(
+            "userid",
             userid
-        ) {
+        );
 
-            statusText.innerText =
-                "Registering Face...";
+        formData.append(
+            "username",
+            username
+        );
 
-            captureButton.disabled =
-                true;
-
-            const formData =
-                new FormData();
+        photos.forEach(
+            function(photo){
 
             formData.append(
-                "userid",
-                String(userid)
+                "photos",
+                photo.blob,
+                photo.filename
             );
 
-            capturedPhotos.forEach(
-                function(photo, index) {
+        });
 
-                    formData.append(
-                        "photos",
-                        photo,
-                        `face_${index}.jpg`
-                    );
-
+        const response =
+            await fetch(
+                "/upload-entity",
+                {
+                    method:"POST",
+                    body:formData
                 }
             );
 
-            try {
+        const data =
+            await response.json();
 
-                const response =
-                    await fetch(
-                        "/upload-entity",
-                        {
-                            method: "POST",
-                            body: formData
-                        }
-                    );
+        statusText.innerText =
+            data.message;
 
-                const data =
-                    await response.json();
+        if(
+            data.success
+        ){
 
-                statusText.innerText =
-                    data.message;
+            statusText.classList
+            .add("success");
 
+        }else{
 
-
-                currentStep = 0;
-
-                capturedPhotos = [];
-
-                instruction.innerText =
-                    instructions[0];
-
-                if (
-                    !data.success
-                ) {
-
-                    statusText.innerText =
-                        `${data.message} Start again from ${instructions[0]}.`;
-                }
-
-            } catch (error) {
-
-                statusText.innerText =
-                    "Registration failed";
-
-                console.log(
-                    error
-                );
-
-            } finally {
-
-                captureButton.disabled =
-                    false;
-            }
+            statusText.classList
+            .add("error");
         }
 
-    </script>
+    }catch(error){
+
+        statusText.innerText =
+            "Server Error";
+
+        statusText.classList
+        .add("error");
+
+        console.log(error);
+    }
+}
+
+</script>
 
 </body>
-
 </html>

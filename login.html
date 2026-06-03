@@ -1,972 +1,492 @@
+﻿
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Face Login</title>
+<meta charset="UTF-8">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
-    <style>
-        body {
-            font-family: Arial;
-            text-align: center;
-            margin-top: 40px;
-            background: #f4f6f8;
-        }
+<title>Face Login</title>
 
-        .camera-shell {
-            position: relative;
-            width: 400px;
-            margin: 0 auto;
-            border-radius: 10px;
-            overflow: hidden;
-            background: #111;
-        }
+<style>
 
-        video {
-            display: block;
-            width: 400px;
-            transform: scaleX(-1);
-        }
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:
+        'Segoe UI',
+        sans-serif;
+}
 
-        #faceOverlay {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
+body{
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:
+        linear-gradient(
+            135deg,
+            #0f172a,
+            #111827,
+            #172554
+        );
 
-        #status {
-            margin-top: 18px;
-            font-size: 20px;
-            font-weight: bold;
-        }
+    overflow:hidden;
+}
 
-        #popup {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            min-width: 280px;
-            padding: 18px;
-            border-radius: 10px;
-            font-size: 20px;
-            font-weight: bold;
-            color: white;
-            display: none;
-            z-index: 999;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-        .popup-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.55);
-            backdrop-filter: blur(8px);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
+.bg-glow{
 
-        .popup-card {
-            width: 420px;
-            background: white;
-            border-radius: 24px;
-            padding: 30px;
-            text-align: center;
-            box-shadow:
-                0 20px 50px rgba(0,0,0,0.25);
-            animation: popupScale .25s ease;
-        }
+    position:absolute;
+    width:500px;
+    height:500px;
+    border-radius:50%;
 
-        .popup-icon {
-            font-size: 60px;
-            margin-bottom: 12px;
-        }
+    background:
+        radial-gradient(
+            circle,
+            rgba(59,130,246,.35),
+            transparent 70%
+        );
 
-        .popup-card h2 {
-            margin: 0;
-            font-size: 28px;
-        }
+    filter:blur(50px);
 
-        .popup-card p {
-            color: #666;
-            margin-top: 10px;
-            font-size: 18px;
-        }
+    animation:
+        floatGlow
+        6s infinite ease-in-out;
+}
 
-        .popup-buttons {
-            display: flex;
-            gap: 12px;
-            margin-top: 25px;
-        }
+.bg-glow.one{
+    top:-120px;
+    left:-120px;
+}
 
-        .popup-buttons button {
-            flex: 1;
-            border: none;
-            padding: 14px;
-            border-radius: 14px;
-            cursor: pointer;
-            font-size: 16px;
-        }
+.bg-glow.two{
+    bottom:-120px;
+    right:-120px;
+}
 
-        .cancel-btn {
-            background: #e5e7eb;
-        }
+@keyframes floatGlow{
 
-        .login-btn {
-            background: #2563eb;
-            color: white;
-        }
+    0%,100%{
+        transform:
+            translateY(0);
+    }
 
-        @keyframes popupScale {
-            from {
-                    transform: scale(.8);
-                    opacity: 0;
-                }
+    50%{
+        transform:
+            translateY(-25px);
+    }
+}
 
-            to {
-                    transform: scale(1);
-                    opacity: 1;
-                }
-        }
-    </style>
+.login-card{
+
+    position:relative;
+    width:480px;
+    padding:30px;
+
+    border-radius:28px;
+
+    background:
+        rgba(255,255,255,.08);
+
+    backdrop-filter:
+        blur(20px);
+
+    border:
+        1px solid rgba(
+            255,255,255,.15
+        );
+
+    box-shadow:
+        0 25px 50px
+        rgba(0,0,0,.35);
+
+    text-align:center;
+}
+
+.login-card h1{
+
+    color:white;
+    font-size:42px;
+    margin-bottom:10px;
+}
+
+.login-card p{
+
+    color:#cbd5e1;
+    margin-bottom:25px;
+    font-size:18px;
+}
+
+.camera-box{
+
+    position:relative;
+
+    width:100%;
+    max-width:400px;
+
+    margin:auto;
+
+    border-radius:26px;
+    overflow:hidden;
+
+    border:
+        2px solid
+        rgba(59,130,246,.7);
+
+    box-shadow:
+        0 0 25px
+        rgba(59,130,246,.25);
+}
+
+video{
+
+    width:100%;
+    display:block;
+
+    transform:
+        scaleX(-1);
+}
+
+.overlay{
+
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+}
+
+.scan-frame{
+
+    position:absolute;
+
+    width:62%;
+    height:72%;
+
+    top:14%;
+    left:19%;
+
+    border:
+        3px solid
+        #38bdf8;
+
+    border-radius:24px;
+
+    box-shadow:
+        0 0 25px
+        rgba(56,189,248,.6);
+
+    animation:
+        pulseFrame
+        2s infinite;
+}
+
+@keyframes pulseFrame{
+
+    0%,100%{
+        transform:scale(1);
+    }
+
+    50%{
+        transform:scale(1.03);
+    }
+}
+
+.scan-line{
+
+    position:absolute;
+
+    width:62%;
+    height:4px;
+
+    left:19%;
+
+    background:
+        linear-gradient(
+            to right,
+            transparent,
+            #38bdf8,
+            transparent
+        );
+
+    box-shadow:
+        0 0 15px
+        #38bdf8;
+
+    animation:
+        scanMove
+        2.5s infinite linear;
+}
+
+@keyframes scanMove{
+
+    0%{
+        top:18%;
+    }
+
+    100%{
+        top:76%;
+    }
+}
+
+.status{
+
+    margin-top:25px;
+    color:#e2e8f0;
+    font-size:20px;
+    font-weight:600;
+}
+
+.success{
+
+    color:#4ade80;
+}
+
+.error{
+
+    color:#f87171;
+}
+
+.loading-dot::after{
+
+    content:'';
+    animation:dots 1s infinite;
+}
+
+@keyframes dots{
+
+    0%{
+        content:'';
+    }
+
+    33%{
+        content:'.';
+    }
+
+    66%{
+        content:'..';
+    }
+
+    100%{
+        content:'...';
+    }
+}
+
+</style>
 </head>
 
 <body>
 
+<div class="bg-glow one"></div>
+<div class="bg-glow two"></div>
+
+<div class="login-card">
+
     <h1>Face Login</h1>
 
-    <div
-        class="camera-shell"
-        id="cameraShell"
-        data-state="checking"
-    >
+    <p>
+        Align your face inside
+        the scanning frame
+    </p>
+
+    <div class="camera-box">
+
         <video
             id="video"
-            width="400"
             autoplay
             playsinline
         ></video>
 
-        <canvas
-            id="faceOverlay"
-            aria-hidden="true"
-        ></canvas>
+        <div class="overlay">
+
+            <div class="scan-frame"></div>
+
+            <div class="scan-line"></div>
+
+        </div>
     </div>
 
-    <div id="status">Starting camera...</div>
-
-    <canvas
-        id="canvas"
-        style="display:none;"
-    ></canvas>
-
-    <div id="popup"></div>
-    
     <div
-    id="passwordLogin"
-    style="
-        display:none;
-        background:white;
-        width:320px;
-        margin:20px auto;
-        padding:20px;
-        border-radius:14px;
-        box-shadow:0 4px 14px rgba(0,0,0,0.2);
-    "
->
-
-    <h2>
-        Login With Password
-    </h2>
-
-    <input
-        type="text"
-        id="manualUsername"
-        placeholder="Login Name"
-        style="
-            width:90%;
-            padding:12px;
-            margin-bottom:12px;
-            border-radius:8px;
-            border:1px solid #ccc;
-        "
+        class="status"
+        id="status"
     >
-
-    <input
-        type="password"
-        id="manualPassword"
-        placeholder="Password"
-        style="
-            width:90%;
-            padding:12px;
-            margin-bottom:12px;
-            border-radius:8px;
-            border:1px solid #ccc;
-        "
-    >
-
-    <br>
-
-    <button
-        onclick="manualLogin()"
-        style="
-            padding:12px 22px;
-            font-size:16px;
-            cursor:pointer;
-            border:none;
-            border-radius:10px;
-            background:#2563eb;
-            color:white;
-        "
-    >
-        Login
-    </button>
+        Starting camera...
+    </div>
 
 </div>
-    <script>
-        let dbConfig = {};
-        const video = document.getElementById("video");
-        const canvas = document.getElementById("canvas");
-        const faceOverlay = document.getElementById("faceOverlay");
-        const overlayContext = faceOverlay.getContext("2d");
-        const statusText = document.getElementById("status");
-        const popup = document.getElementById("popup");
-        const cameraShell = document.getElementById("cameraShell");
-        let isChecking = false;
-        let scanTimer = null;
-        let lastMessage = "";
-        let lastPopupTime = 0;
-        let trackedFace = null;
-        let overlayAnimation = null;
-        let isPopupOpen = false;
-
-        async function loadDBConfig() {
-
-            try {
-
-                const response =
-                    await fetch(
-                        "/db-config"
-                    );
-
-                dbConfig =
-                    await response.json();
-
-                console.log(
-                    "DB Config Loaded",
-                    dbConfig
-                );
-
-            } catch (error) {
-
-                console.log(
-                    "Config Load Error",
-                    error
-                );
-            }
-        }          
-        loadDBConfig();
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) 
-            {
-
-                navigator.mediaDevices
-                .getUserMedia({
-                    video: {
-                        width: 640,
-                        height: 480,
-                        facingMode: "user"
-                    }
-                })
-
-                .then(function(stream) {
-
-                video.srcObject =
-                    stream;
-
-                statusText.innerText =
-                    "Align your face with the camera";
-
-                video.addEventListener("loadedmetadata",function() 
-                {
-
-                    resizeOverlay();
-
-                    drawOverlay();
-
-                    scanTimer =
-                        setInterval(
-                            checkFaceLogin,
-                            900
-                        );
-                }
-            );
-        })
-
-        .catch(function(error) {
-
-            console.log(error);
-
-            statusText.innerText =
-                "Camera Error: "
-                + error.message;
-
-            cameraShell.dataset.state =
-                "error";
-        });
-
-} else {
-
-    statusText.innerText =
-        "Camera not supported or blocked by browser";
-
-    cameraShell.dataset.state =
-        "error";
-}
-
-        
-        window.addEventListener("resize", resizeOverlay);
-
-        function resizeOverlay() {
-            const rect = video.getBoundingClientRect();
-            faceOverlay.width = Math.round(rect.width);
-            faceOverlay.height = Math.round(rect.height);
-        }
-
-        function getOverlayColor() {
-            if (cameraShell.dataset.state === "matched") {
-                return "#2dd4bf";
-            }
-
-            if (cameraShell.dataset.state === "error") {
-                return "#fb7185";
-            }
-
-            return "#22d3ee";
-        }
-
-        function getFallbackFaceBox() {
-            return {
-                x: faceOverlay.width * 0.28,
-                y: faceOverlay.height * 0.16,
-                width: faceOverlay.width * 0.44,
-                height: faceOverlay.height * 0.68
-            };
-        }
-
-        function smoothFaceBox(nextBox) {
-            const expandedBox = expandFaceBox(nextBox, 1.34, 1.22);
-
-            if (!trackedFace) {
-                trackedFace = expandedBox;
-                return;
-            }
-
-            const weight = 0.42;
-            trackedFace = {
-                x: trackedFace.x + (expandedBox.x - trackedFace.x) * weight,
-                y: trackedFace.y + (expandedBox.y - trackedFace.y) * weight,
-                width: trackedFace.width + (expandedBox.width - trackedFace.width) * weight,
-                height: trackedFace.height + (expandedBox.height - trackedFace.height) * weight
-            };
-        }
-
-        function expandFaceBox(box, widthScale, heightScale) {
-            const centerX = box.x + box.width / 2;
-            const centerY = box.y + box.height / 2;
-            const width = Math.min(faceOverlay.width, box.width * widthScale);
-            const height = Math.min(faceOverlay.height, box.height * heightScale);
-
-            return {
-                x: Math.max(0, Math.min(faceOverlay.width - width, centerX - width / 2)),
-                y: Math.max(0, Math.min(faceOverlay.height - height, centerY - height / 2)),
-                width,
-                height
-            };
-        }
-
-        function updateFaceBoxFromBackend(faceBox) {
-            if (!faceBox || !faceOverlay.width || !faceOverlay.height) {
-                return;
-            }
-
-            smoothFaceBox({
-                x: (1 - faceBox.x - faceBox.width) * faceOverlay.width,
-                y: faceBox.y * faceOverlay.height,
-                width: faceBox.width * faceOverlay.width,
-                height: faceBox.height * faceOverlay.height
-            });
-        }
-
-        function drawCornerFrame(ctx, box, color, time) {
-            const x = box.x;
-            const y = box.y;
-            const w = box.width;
-            const h = box.height;
-            const corner = Math.min(w, h) * 0.14;
-            const pulse = 0.45 + Math.sin(time / 520) * 0.18;
-
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = 0.55;
-            ctx.lineWidth = 2;
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 18 * pulse;
-
-            ctx.beginPath();
-            ctx.moveTo(x, y + corner);
-            ctx.lineTo(x, y);
-            ctx.lineTo(x + corner, y);
-            ctx.moveTo(x + w - corner, y);
-            ctx.lineTo(x + w, y);
-            ctx.lineTo(x + w, y + corner);
-            ctx.moveTo(x + w, y + h - corner);
-            ctx.lineTo(x + w, y + h);
-            ctx.lineTo(x + w - corner, y + h);
-            ctx.moveTo(x + corner, y + h);
-            ctx.lineTo(x, y + h);
-            ctx.lineTo(x, y + h - corner);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        function drawFaceMesh(ctx, box, color) {
-            const cx = box.x + box.width / 2;
-            const top = box.y + box.height * 0.05;
-            const bottom = box.y + box.height * 0.96;
-            const rx = box.width * 0.48;
-            const ry = box.height * 0.48;
-
-            function p(x, y) {
-                return [
-                    cx + x * rx,
-                    box.y + y * box.height
-                ];
-            }
-
-            const points = [
-                p(-0.62, 0.20), p(-0.33, 0.10), p(0, 0.08), p(0.33, 0.10), p(0.62, 0.20),
-                p(-0.78, 0.36), p(-0.42, 0.30), p(-0.16, 0.34), p(0.16, 0.34), p(0.42, 0.30), p(0.78, 0.36),
-                p(-0.70, 0.52), p(-0.35, 0.50), p(0, 0.48), p(0.35, 0.50), p(0.70, 0.52),
-                p(-0.55, 0.70), p(-0.22, 0.68), p(0.22, 0.68), p(0.55, 0.70),
-                p(-0.30, 0.86), p(0, 0.93), p(0.30, 0.86),
-                p(0, 0.60), p(-0.15, 0.58), p(0.15, 0.58)
-            ];
-
-            const outline = [2, 3, 4, 10, 15, 19, 22, 21, 20, 16, 11, 5, 0, 1, 2];
-            const triangles = [
-                [0, 1, 6], [1, 2, 7], [2, 3, 8], [3, 4, 9],
-                [0, 5, 6], [4, 9, 10], [5, 11, 12], [6, 7, 12],
-                [7, 13, 12], [8, 14, 13], [8, 9, 14], [9, 10, 15],
-                [11, 16, 12], [12, 17, 23], [13, 23, 14], [14, 18, 15],
-                [16, 20, 17], [17, 21, 18], [18, 22, 19], [20, 21, 17],
-                [21, 22, 18], [12, 24, 23], [14, 25, 23], [24, 13, 25],
-                [7, 24, 13], [8, 13, 25]
-            ];
-
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.fillStyle = color;
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 10;
-            ctx.lineWidth = 1.15;
-
-            ctx.beginPath();
-            outline.forEach(function(pointIndex, index) {
-                const point = points[pointIndex];
-                if (index === 0) {
-                    ctx.moveTo(point[0], point[1]);
-                }
-                else {
-                    ctx.lineTo(point[0], point[1]);
-                }
-            });
-            ctx.closePath();
-            ctx.globalAlpha = 0.92;
-            ctx.stroke();
-
-            triangles.forEach(function(triangle, index) {
-                const phase = Math.sin(Date.now() / 520 + index * 0.65);
-                ctx.globalAlpha = 0.22 + Math.max(0, phase) * 0.18;
-                ctx.beginPath();
-                ctx.moveTo(points[triangle[0]][0], points[triangle[0]][1]);
-                ctx.lineTo(points[triangle[1]][0], points[triangle[1]][1]);
-                ctx.lineTo(points[triangle[2]][0], points[triangle[2]][1]);
-                ctx.closePath();
-                ctx.stroke();
-            });
-
-            points.forEach(function(point, index) {
-                const glow = 1 + Math.sin(Date.now() / 420 + index) * 0.45;
-                ctx.globalAlpha = 0.65 + glow * 0.18;
-                ctx.beginPath();
-                ctx.arc(point[0], point[1], 1.8 + glow, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            ctx.globalAlpha = 0.55;
-            ctx.beginPath();
-            ctx.moveTo(cx, top);
-            ctx.lineTo(cx, bottom);
-            ctx.stroke();
-
-            ctx.restore();
-        }
-
-        function drawScanLine(ctx, box, color, time) {
-            const progress = (time % 2600) / 2600;
-            const y = box.y + box.height * progress;
-
-            ctx.save();
-            const gradient = ctx.createLinearGradient(
-                box.x + box.width * 0.08,
-                y,
-                box.x + box.width * 0.92,
-                y
-            );
-            gradient.addColorStop(0, "rgba(34, 211, 238, 0)");
-            gradient.addColorStop(0.5, color);
-            gradient.addColorStop(1, "rgba(34, 211, 238, 0)");
-
-            ctx.strokeStyle = gradient;
-            ctx.lineWidth = 3;
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 22;
-            ctx.beginPath();
-            ctx.moveTo(box.x + box.width * 0.08, y);
-            ctx.lineTo(box.x + box.width * 0.92, y);
-            ctx.stroke();
-
-            ctx.globalAlpha = 0.12;
-            ctx.fillStyle = color;
-            ctx.fillRect(
-                box.x + box.width * 0.1,
-                y,
-                box.width * 0.8,
-                box.height * 0.10
-            );
-            ctx.restore();
-        }
-
-        function drawOrbitMarkers(ctx, box, color, time) {
-            const cx = box.x + box.width / 2;
-            const cy = box.y + box.height / 2;
-            const radiusX = box.width * 0.62;
-            const radiusY = box.height * 0.62;
-
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 12;
-
-            for (let i = 0; i < 10; i++) {
-                const angle = time / 1150 + i * Math.PI * 0.2;
-                const x = cx + Math.cos(angle) * radiusX;
-                const y = cy + Math.sin(angle) * radiusY;
-                const size = 1.8 + (i % 3);
-
-                ctx.globalAlpha = 0.18 + (i % 4) * 0.08;
-                ctx.beginPath();
-                ctx.arc(x, y, size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            ctx.restore();
-        }
-
-        function drawDataSweep(ctx, box, color, time) {
-            const lineCount = 9;
-            const progress = (time % 1800) / 1800;
-
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1;
-            ctx.globalAlpha = 0.22;
-
-            for (let i = 0; i < lineCount; i++) {
-                const offset = ((i / lineCount + progress) % 1) * box.height;
-                const y = box.y + offset;
-
-                ctx.beginPath();
-                ctx.moveTo(box.x + box.width * 0.16, y);
-                ctx.lineTo(box.x + box.width * 0.84, y);
-                ctx.stroke();
-            }
-
-            ctx.restore();
-        }
-
-        function drawOverlay(time = 0) {
-            overlayContext.clearRect(0, 0, faceOverlay.width, faceOverlay.height);
-
-            const box = trackedFace || getFallbackFaceBox();
-            const color = getOverlayColor();
-
-            drawCornerFrame(overlayContext, box, color, time);
-            drawDataSweep(overlayContext, box, color, time);
-            drawFaceMesh(overlayContext, box, color);
-            drawOrbitMarkers(overlayContext, box, color, time);
-            drawScanLine(overlayContext, box, color, time);
-
-            overlayAnimation = requestAnimationFrame(drawOverlay);
-        }
-
-        function showPopup(message, type) {
-            popup.innerText = message;
-            popup.style.display = "block";
-
-            if (type === "success") {
-                popup.style.background = "green";
-            }
-            else if (type === "error") {
-                popup.style.background = "red";
-            }
-            else {
-                popup.style.background = "orange";
-            }
-
-            setTimeout(function() {
-                popup.style.display = "none";
-            }, 5000);
-        }
-
-        async function captureFrame(filename) {
-            const context = canvas.getContext("2d");
-
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            context.drawImage(
-                video,
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
-
-            return new Promise(function(resolve) {
-                canvas.toBlob(
-                    function(blob) {
-                        resolve({
-                            blob,
-                            filename
-                        });
-                    },
-                    "image/jpeg",
-                    0.9
-                );
-            });
-        }
-
-        async function checkFaceLogin() {
-            if (!dbConfig.db_server) {
-
-                console.log(
-                "DB Config not loaded yet"
-                );
-
-                return;
-            }
-            if (
-                isChecking ||
-                isPopupOpen ||
-                !video.videoWidth ||
-                !video.videoHeight
-            ) {
-                return;
-            }
-
-            isChecking = true;
-            statusText.innerText = "Checking face...";
-            cameraShell.dataset.state = "checking";
-
-            try {
-                const firstFrame = await captureFrame("login_0.jpg");
-
-                await new Promise(function(resolve) {
-                    setTimeout(resolve, 150);
+
+<canvas
+    id="canvas"
+    style="display:none;"
+></canvas>
+
+<script>
+
+const CLIENT_ID =
+    "19557";
+
+const video =
+    document.getElementById(
+        "video"
+    );
+
+const canvas =
+    document.getElementById(
+        "canvas"
+    );
+
+const statusText =
+    document.getElementById(
+        "status"
+    );
+
+let isChecking =
+    false;
+
+navigator
+.mediaDevices
+.getUserMedia({
+    video:true
+})
+.then(function(stream){
+
+    video.srcObject =
+        stream;
+
+    statusText.innerHTML =
+        "Scanning Face" +
+        '<span class="loading-dot"></span>';
+
+    setInterval(
+        checkFaceLogin,
+        1500
+    );
+})
+.catch(function(error){
+
+    statusText.innerHTML =
+        "Camera access denied";
+
+    statusText.classList
+    .add("error");
+
+    console.log(error);
+});
+
+async function captureFrame(
+    filename
+){
+
+    const context =
+        canvas.getContext(
+            "2d"
+        );
+
+    canvas.width =
+        video.videoWidth;
+
+    canvas.height =
+        video.videoHeight;
+
+    context.drawImage(
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    return new Promise(
+        function(resolve){
+
+        canvas.toBlob(
+            function(blob){
+
+                resolve({
+                    blob,
+                    filename
                 });
 
-                const secondFrame = await captureFrame("login_1.jpg");
-
-                const formData = new FormData();
-                formData.append("photos", firstFrame.blob, firstFrame.filename);
-                formData.append("photos", secondFrame.blob, secondFrame.filename);
-
-                formData.append(
-                    "db_server",
-                    dbConfig.db_server
-                );
-
-                formData.append(
-                    "db_name",
-                    dbConfig.db_name
-                );
-
-                formData.append(
-                    "db_user",
-                    dbConfig.db_user
-                );
-
-                formData.append(
-                    "db_pass",
-                    dbConfig.db_pass
-                );
-
-                formData.append(
-                    "db_driver",
-                    dbConfig.db_driver
-                );
-
-                const response = await fetch(
-                    "/authenticate",
-                    {
-                        method: "POST",
-                        body: formData
-                    }
-                );
-
-                const data = await response.json();
-
-                updateFaceBoxFromBackend(data.face_box);
-
-                if (data.success === true && data.matched === true) {
-
-                    clearInterval(scanTimer);
-
-                    const stream = video.srcObject;
-
-                    if (stream) {
-                        stream
-                            .getTracks()
-                            .forEach(track => track.stop());
-                    }
-
-                    statusText.innerText =
-                        data.message;
-
-                    cameraShell.dataset.state =
-                        "matched";
-
-                   
-                    localStorage.setItem(
-                        "loggedInUser",
-                        data.username
-                    );
-
-
-                    
-                    localStorage.setItem(
-                        "loggedInUser",
-                        data.username
-                    );
-
-
-                    window.location.replace(
-                        "welcome.html"
-                    );
-
-                    return;
-                }
-                statusText.innerText =data.message;
-                if (data.show_password_login) {
-
-                    showFancyLoginPopup();
-
-                    return;
-                }
-
-                else {
-
-                    document.getElementById(
-                        "passwordLogin"
-                    ).style.display = "none";
-                }
-                cameraShell.dataset.state =data.message.includes("Face Not Detected")? "error": "checking";
-                showPopupIfNeeded(data.message,"warning");
-            }
-            catch(error) {
-                statusText.innerText = "Server error";
-                cameraShell.dataset.state = "error";
-                showPopupIfNeeded("Server Error", "error");
-                console.log(error);
-            }
-            finally {
-                if(
-                    cameraShell.dataset.state !==
-                        "matched"
-
-                ){
-
-                    isChecking = false;
-                }
-            }
-        }    
-
-        function showPopupIfNeeded(message, type) {
-            const now = Date.now();
-
-            if (
-                message === lastMessage &&
-                now - lastPopupTime < 5000
-            ) {
-                return;
-            }
-
-            lastMessage = message;
-            lastPopupTime = now;
-            showPopup(message, type);
-        }
-    function showFancyLoginPopup() {
-
-        isPopupOpen = true;
-
-        clearInterval(scanTimer);
-
-        isChecking = false;
-
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "flex";
-    }
-
-    function closeFancyPopup() {
-
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "none";
-
-        statusText.innerText =
-            "Scanning face...";
-        isPopupOpen = false;
-        isChecking = false;
-
-        scanTimer = setInterval(
-            checkFaceLogin,
-            900
-        );
-    }
-
-    function openPasswordLogin() {
-
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "none";
-
-        clearInterval(scanTimer);
-
-        const stream =
-            video.srcObject;
-
-        if (stream) {
-            stream
-                .getTracks()
-                .forEach(track =>
-                    track.stop()
-                );
-        }
-
-        document.getElementById(
-            "cameraShell"
-        ).style.display = "none";
-
-        statusText.style.display =
-            "none";
-
-        document.getElementById(
-            "passwordLogin"
-        ).style.display = "block";
-    }
-    async function manualLogin() {
-
-    const username =
-        document.getElementById(
-            "manualUsername"
-        ).value.trim();
-
-    const password =
-        document.getElementById(
-            "manualPassword"
-        ).value.trim();
-
-    if (
-        !username ||
-        !password
-    ) {
-
-        showPopup(
-            "Enter username and password",
-            "error"
+            },
+            "image/jpeg",
+            0.9
         );
 
+    });
+}
+
+async function checkFaceLogin(){
+
+    if(isChecking){
         return;
     }
 
-    try {
+    isChecking =
+        true;
+
+    try{
+
+        const frame1 =
+            await captureFrame(
+                "face1.jpg"
+            );
+
+        await new Promise(
+            r => setTimeout(
+                r,
+                150
+            )
+        );
+
+        const frame2 =
+            await captureFrame(
+                "face2.jpg"
+            );
 
         const formData =
             new FormData();
 
         formData.append(
-            "username",
-            username
+            "clientid",
+            CLIENT_ID
         );
 
         formData.append(
-            "password",
-            password
+            "photos",
+            frame1.blob,
+            frame1.filename
         );
 
         formData.append(
-            "db_server",
-            dbConfig.db_server
-        );
-
-        formData.append(
-            "db_name",
-            dbConfig.db_name
-        );
-
-        formData.append(
-            "db_user",
-            dbConfig.db_user
-        );
-
-        formData.append(
-            "db_pass",
-            dbConfig.db_pass
-        );
-
-        formData.append(
-            "db_driver",
-            dbConfig.db_driver
+            "photos",
+            frame2.blob,
+            frame2.filename
         );
 
         const response =
             await fetch(
-                "/manual-login",
+                "/authenticate",
                 {
-                    method: "POST",
-                    body: formData
+                    method:"POST",
+                    body:formData
                 }
             );
 
         const data =
             await response.json();
 
-        if (data.success) {
+        statusText.innerText =
+            data.message;
 
-            cameraShell.dataset.state =
-                "matched";
+        if(
+            data.success
+        ){
 
-            statusText.style.display =
-                "block";
-
-            statusText.innerText =
-                data.message;
-
-            showPopup(
-                data.message,
+            statusText.classList
+            .add(
                 "success"
             );
 
@@ -975,75 +495,41 @@
                 data.username
             );
 
-            setTimeout(
-                function () {
+            localStorage.setItem(
+                "loggedInUserId",
+                data.userid
+            );
 
-                    window.location.replace(
-                        "welcome.html"
-                    );
+            setTimeout(
+                function(){
+
+                    window.location.href =
+                        "welcome.html";
 
                 },
                 1000
             );
-
-        } else {
-
-            showPopup(
-                data.message,
-                "error"
-            );
         }
 
-    } catch (error) {
+    }catch(error){
+
+        statusText.innerText =
+            "Server Error";
+
+        statusText.classList
+        .add("error");
 
         console.log(error);
 
-        showPopup(
-            "Server Error",
-            "error"
-        );
+    }finally{
+
+        isChecking =
+            false;
     }
 }
-    
-    </script>
-    <div id="fancyPopup" class="popup-overlay">
 
-    <div class="popup-card">
+</script>
 
-        <div class="popup-icon">
-            ⚠️
-        </div>
-
-        <h2>
-            Face Login Failed
-        </h2>
-
-        <p>
-            Face recognition failed 3 times.
-            Try login another way?
-        </p>
-
-        <div class="popup-buttons">
-
-            <button
-                class="cancel-btn"
-                onclick="closeFancyPopup()"
-            >
-                Continue Scan
-            </button>
-
-            <button
-                class="login-btn"
-                onclick="openPasswordLogin()"
-            >
-                Login Another Way
-            </button>
-
-        </div>
-
-    </div>
-
-</div>
 </body>
-
 </html>
+
