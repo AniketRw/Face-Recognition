@@ -2,6 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
 
+
 <head>
 <meta charset="UTF-8">
 <meta
@@ -151,6 +152,23 @@ video{
     transform:
         scaleX(-1);
 }
+#meshCanvas{
+
+    position:absolute;
+
+    top:0;
+    left:0;
+
+    width:100%;
+    height:100%;
+
+    pointer-events:none;
+
+    transform:
+        scaleX(-1);
+
+    z-index:10;
+}
 
 .overlay{
 
@@ -195,42 +213,8 @@ video{
     }
 }
 
-.scan-line{
 
-    position:absolute;
 
-    width:62%;
-    height:4px;
-
-    left:19%;
-
-    background:
-        linear-gradient(
-            to right,
-            transparent,
-            #38bdf8,
-            transparent
-        );
-
-    box-shadow:
-        0 0 15px
-        #38bdf8;
-
-    animation:
-        scanMove
-        2.5s infinite linear;
-}
-
-@keyframes scanMove{
-
-    0%{
-        top:18%;
-    }
-
-    100%{
-        top:76%;
-    }
-}
 
 .status{
 
@@ -248,6 +232,50 @@ video{
 .error{
 
     color:#f87171;
+}
+.corner{
+
+    position:absolute;
+
+    width:50px;
+    height:50px;
+
+    border:4px solid #00ff88;
+
+    z-index:12;
+
+    filter:
+        drop-shadow(
+            0 0 8px #00ff88
+        );
+}
+
+.corner.tl{
+    top:15px;
+    left:15px;
+    border-right:none;
+    border-bottom:none;
+}
+
+.corner.tr{
+    top:15px;
+    right:15px;
+    border-left:none;
+    border-bottom:none;
+}
+
+.corner.bl{
+    bottom:15px;
+    left:15px;
+    border-right:none;
+    border-top:none;
+}
+
+.corner.br{
+    bottom:15px;
+    right:15px;
+    border-left:none;
+    border-top:none;
 }
 
 .loading-dot::after{
@@ -276,6 +304,10 @@ video{
 }
 
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
 </head>
 
 <body>
@@ -299,12 +331,23 @@ video{
             autoplay
             playsinline
         ></video>
+        <canvas
+            id="meshCanvas">
+        </canvas>
 
         <div class="overlay">
 
             <div class="scan-frame"></div>
 
-            <div class="scan-line"></div>
+            
+
+            <div class="corner tl"></div>
+
+            <div class="corner tr"></div>
+
+            <div class="corner bl"></div>
+
+            <div class="corner br"></div>
 
         </div>
     </div>
@@ -346,6 +389,78 @@ const statusText =
 let isChecking =
     false;
 
+const meshCanvas =
+    document.getElementById(
+        "meshCanvas"
+    );
+
+const meshCtx =
+    meshCanvas.getContext(
+        "2d"
+    );
+
+const faceMesh =
+    new FaceMesh({
+        locateFile:
+        (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+faceMesh.setOptions({
+
+    maxNumFaces:1,
+
+    refineLandmarks:true,
+
+    minDetectionConfidence:0.5,
+
+    minTrackingConfidence:0.5
+});
+
+faceMesh.onResults(
+    function(results){
+
+        meshCanvas.width =
+            video.videoWidth;
+
+        meshCanvas.height =
+            video.videoHeight;
+
+        meshCtx.clearRect(
+            0,
+            0,
+            meshCanvas.width,
+            meshCanvas.height
+        );
+
+        if(
+            !results.multiFaceLandmarks
+        ){
+            return;
+        }
+        console.log(
+            "FACE DETECTED"
+        );
+        for(
+            const landmarks
+            of results.multiFaceLandmarks
+        ){
+
+            window.drawConnectors(
+                meshCtx,
+                landmarks,
+                FACEMESH_TESSELATION,
+                {
+                    color:"#00ff88",
+                    lineWidth:1
+                }
+            );
+        }
+    }
+);
+
+
+
 navigator
 .mediaDevices
 .getUserMedia({
@@ -355,6 +470,24 @@ navigator
 
     video.srcObject =
         stream;
+    const camera =
+    new Camera(
+        video,
+        {
+            onFrame:
+            async () => {
+
+                await faceMesh.send({
+                    image:video
+                });
+
+            },
+            width:640,
+            height:480
+        }
+    );
+
+camera.start();
 
     statusText.innerHTML =
         "Scanning Face" +
