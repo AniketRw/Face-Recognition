@@ -405,8 +405,6 @@ def save_database(
             indent=2
         )
 
-
-
 @app.post("/delete-client-data")
 def delete_client_data(
     clientid: str = Form(...)
@@ -418,10 +416,19 @@ def delete_client_data(
         str(clientid)
     )
 
+    print("BASE_DIR:", BASE_DIR)
+    print("BASE_STORAGE:", BASE_STORAGE)
+    print("CLIENT_PATH:", client_path)
+    print("PATH_EXISTS:", os.path.exists(client_path))
+
     if not os.path.exists(client_path):
         return {
             "success": False,
-            "message": "Client data not found"
+            "message": "Client data not found",
+            "base_dir": BASE_DIR,
+            "base_storage": BASE_STORAGE,
+            "client_path": client_path,
+            "exists": os.path.exists(client_path)
         }
 
     shutil.rmtree(client_path)
@@ -429,11 +436,10 @@ def delete_client_data(
     return {
         "success": True,
         "message":
-        f"Deleted all data for client {clientid}"
+        f"Deleted all data for client {clientid}",
+        "deleted_path": client_path
     }
-# @app.get("/")
-# def home():
-#     return {"message": "Face Recognition API Running"}
+
 
 @app.get("/")
 def home():
