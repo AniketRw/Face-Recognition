@@ -8,24 +8,46 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import cv2
 import pyodbc
+print("AVAILABLE DRIVERS:", pyodbc.drivers())
 import configparser
 import sys
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "http://192.168.200.14:5500"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 DIMENSION = 128
-INDEX_PATH = "face_index.faiss"
-MAPPING_PATH = "user_mapping.json"
+# INDEX_PATH = "face_index.faiss"
+# MAPPING_PATH = "user_mapping.json"
+#BASE_STORAGE = "/app/data"
+BASE_STORAGE = os.getenv(
+    "PERSISTENT_STORAGE",
+    "/tmp/facerecognition"
+)
+os.makedirs(
+    BASE_STORAGE,
+    exist_ok=True
+)
+print("test redeploynew")
+INDEX_PATH = os.path.join(
+    BASE_STORAGE,
+    "face_index.faiss"
+)
+
+MAPPING_PATH = os.path.join(
+    BASE_STORAGE,
+    "user_mapping.json"
+)
+
 MODEL_NAME = "Facenet"
 FACE_CASCADE = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -39,6 +61,7 @@ MATCH_MARGIN = 0.06
 MIN_USER_MATCHES = 2
 MIN_REGISTRATION_PHOTOS = 3
 MIN_LOGIN_FRAME_MATCHES = 2
+
 
 
 
@@ -83,6 +106,14 @@ MIN_USER_MATCHES = int(
     )
 )
 
+MIN_REGISTRATION_PHOTOS = int(
+    config.get(
+        "APP",
+        "MIN_REGISTRATION_PHOTOS",
+        fallback="3"
+    )
+)
+
 MIN_LOGIN_FRAME_MATCHES = int(
     config.get(
         "APP",
@@ -103,21 +134,22 @@ failed_attempts = {}
 
 
 
-if os.path.exists(INDEX_PATH):
-    index = faiss.read_index(INDEX_PATH)
-    print("FAISS LOADED")
-else:
-    index = faiss.IndexFlatL2(DIMENSION)
-    print("NEW FAISS CREATED")
+# if os.path.exists(INDEX_PATH):
+#     index = faiss.read_index(INDEX_PATH)
+#     print("FAISS LOADED")
+# else:
+#     index = faiss.IndexFlatL2(DIMENSION)
+#     print("NEW FAISS CREATED")
 
-if os.path.exists(MAPPING_PATH):
-    with open(MAPPING_PATH, "r") as file:
-        user_mapping = json.load(file)
-        print("User Mapping Loaded")
-else:
-    user_mapping = {}
-    print("New User Mapping")
-
+# if os.path.exists(MAPPING_PATH):
+#     with open(MAPPING_PATH, "r") as file:
+#         user_mapping = json.load(file)
+#         print("User Mapping Loaded")
+# else:
+#     user_mapping = {}
+#     print("New User Mapping")
+index = faiss.IndexFlatL2(DIMENSION)
+user_mapping = {}
 
 def get_db_connection(
     db_server,
@@ -132,7 +164,7 @@ def get_db_connection(
         f"DATABASE={db_name};"
         f"UID={db_user};"
         f"PWD={db_pass};"
-        "Encrypt=no;"
+        "Encrypt=yes;"
         "TrustServerCertificate=yes;"
         "Connection Timeout=30;"
     )
@@ -163,9 +195,9 @@ def get_client_id(conn):
 
 def get_client_paths(client_id):
 
-    base_path = (
-        f"/data/customers/"
-        f"{client_id}"
+    base_path = os.path.join(
+        BASE_STORAGE,
+        str(client_id)
     )
 
     os.makedirs(
@@ -174,13 +206,15 @@ def get_client_paths(client_id):
     )
 
     return {
-        "faiss":
-            f"{base_path}/face_index.faiss",
-
-        "mapping":
-            f"{base_path}/user_mapping.json"
+        "faiss": os.path.join(
+            base_path,
+            "face_index.faiss"
+        ),
+        "mapping": os.path.join(
+            base_path,
+            "user_mapping.json"
+        )
     }
-
 def get_user_from_db(
     userid: int,
     db_server,
@@ -248,15 +282,51 @@ def get_users_from_db(
         for row in rows
     ]
 
+
 def read_upload_image(photo: UploadFile):
+
     image_bytes = photo.file.read()
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    np_arr = np.frombuffer(
+        image_bytes,
+        np.uint8
+    )
+
+    image = cv2.imdecode(
+        np_arr,
+        cv2.IMREAD_COLOR
+    )
 
     if image is None:
-        raise ValueError("Invalid image file")
+        raise ValueError(
+            "Invalid image file"
+        )
+
+    # Reduce image size for CPU optimization
+    height, width = image.shape[:2]
+
+    max_width = 640
+
+    if width > max_width:
+
+        scale = (
+            max_width / width
+        )
+
+        new_height = int(
+            height * scale
+        )
+
+        image = cv2.resize(
+            image,
+            (
+                max_width,
+                new_height
+            )
+        )
 
     return image
+
 
 
 def crop_face(image):
@@ -564,7 +634,7 @@ def save_database(
             indent=2
         )
 
-@app.get("/db-config")
+@app.get("/db-config",include_in_schema=False)
 def get_db_config():
 
     config = configparser.ConfigParser()
@@ -590,7 +660,7 @@ def get_db_config():
 
 
 
-@app.post("/manual-login")
+@app.post("/manual-login" ,include_in_schema=False )
 def manual_login(
     username: str = Form(...),
     password: str = Form(...),
@@ -672,10 +742,30 @@ def manual_login(
             str(e)
         }
 
+# @app.get("/")
+# def home():
+#     return {"message": "Face Recognition API Running"}
+
 @app.get("/")
 def home():
-    return {"message": "Face Recognition API Running"}
-@app.get("/get-user/{userid}")
+    return FileResponse("login.html")
+
+@app.get("/index.html",include_in_schema=False)
+def index_page():
+    return FileResponse("index.html")
+
+
+@app.get("/welcome.html",include_in_schema=False)
+def welcome_page():
+    return FileResponse("welcome.html")
+
+
+@app.get("/login.html",include_in_schema=False)
+def login_page():
+    return FileResponse("login.html")
+
+
+@app.get("/get-user/{userid}" ,include_in_schema=False)
 def get_user(userid: int):
 
     try:
@@ -734,7 +824,7 @@ def get_user(userid: int):
             "message": str(e)
         }
     
-@app.post("/users")
+@app.post("/users",include_in_schema=False)
 def users(
     db_server: str = Form(...),
     db_name: str = Form(...),
@@ -934,18 +1024,21 @@ def upload_entity(
         "total_vectors": index.ntotal,
     }
 
+from typing import Optional, List
+
 
 @app.post("/authenticate")
 def authenticate(
     photo: Optional[UploadFile] = File(None),
-    photos: Optional[list[UploadFile]] = File(None),
-
-    db_server: str = Form(...),
-    db_name: str = Form(...),
-    db_user: str = Form(...),
-    db_pass: str = Form(...),
-    db_driver: str = Form(...)
+    photos: List[UploadFile] = File(...)
 ):
+    # DB config from config.ini
+    db_server = config["DATABASE"]["SERVER"]
+    db_name = config["DATABASE"]["DATABASE"]
+    db_user = config["DATABASE"]["USER"]
+    db_pass = config["DATABASE"]["PASSWORD"]
+    db_driver = config["DATABASE"]["DRIVER"]
+
     connection = get_db_connection(
         db_server,
         db_name,
@@ -954,20 +1047,12 @@ def authenticate(
         db_driver
     )
 
-    client_id = get_client_id(
-        connection
-    )
-
+    client_id = get_client_id(connection)
     connection.close()
 
-    print(
-        "CLIENT ID:",
-        client_id
-    )
+    print("CLIENT ID:", client_id)
 
-    paths = get_client_paths(
-        client_id
-    )
+    paths = get_client_paths(client_id)
 
     global INDEX_PATH
     global MAPPING_PATH
@@ -978,67 +1063,95 @@ def authenticate(
     MAPPING_PATH = paths["mapping"]
 
     if os.path.exists(INDEX_PATH):
-        index = faiss.read_index(
-            INDEX_PATH
-        )
+        index = faiss.read_index(INDEX_PATH)
     else:
-        index = faiss.IndexFlatL2(
-            DIMENSION
-        )
+        index = faiss.IndexFlatL2(DIMENSION)
 
-    if os.path.exists(
-        MAPPING_PATH
-    ):
-        with open(
-            MAPPING_PATH,
-            "r"
-        ) as file:
-
-            user_mapping = json.load(
-                file
-            )
+    if os.path.exists(MAPPING_PATH):
+        with open(MAPPING_PATH, "r") as file:
+            user_mapping = json.load(file)
     else:
         user_mapping = {}
+
     try:
         if index.ntotal == 0:
             return {
                 "success": False,
                 "matched": False,
-                "message": "No registered faces found",
+                "message": "No registered faces found"
             }
 
-        login_photos = photos if photos else ([photo] if photo else [])
+        login_photos = (
+            photos if photos
+            else [photo] if photo
+            else []
+        )
+
         if not login_photos:
             return {
                 "success": False,
                 "matched": False,
-                "message": "No login photo received",
+                "message": "No login photo received"
             }
 
-        required_frame_matches = min(MIN_LOGIN_FRAME_MATCHES, len(login_photos))
-        print("LOGIN PHOTOS RECEIVED:", len(login_photos))
+        required_frame_matches = min(
+            MIN_LOGIN_FRAME_MATCHES,
+            len(login_photos)
+        )
+
+        print(
+            "LOGIN PHOTOS RECEIVED:",
+            len(login_photos)
+        )
 
         frame_matches = []
         face_detected_count = 0
+        face_box = None
 
         for login_photo in login_photos:
+
             try:
                 image = read_upload_image(login_photo)
-                face_vector, face_box = get_face_vector(image, return_box=True)
+
+                face_vector, face_box = (
+                    get_face_vector(
+                        image,
+                        return_box=True
+                    )
+                )
+
                 face_detected_count += 1
+
             except Exception as e:
-                print("LOGIN FRAME SKIPPED:", e)
+                print(
+                    "LOGIN FRAME SKIPPED:",
+                    e
+                )
                 continue
 
-            match, match_status = find_best_user_match(face_vector)
+            match, match_status = (
+                find_best_user_match(
+                    face_vector
+                )
+            )
+
             if match_status == "matched":
+
                 frame_matches.append(match)
 
                 matched_keys = [
                     existing_match["key"]
-                    for existing_match in frame_matches
+                    for existing_match
+                    in frame_matches
                 ]
-                if matched_keys.count(match["key"]) >= required_frame_matches:
+
+                if (
+                    matched_keys.count(
+                        match["key"]
+                    )
+                    >= required_frame_matches
+                ):
+
                     user = refresh_user_from_db(
                         match["user"],
                         db_server,
@@ -1047,28 +1160,42 @@ def authenticate(
                         db_pass,
                         db_driver
                     )
+
                     username = user["username"]
+
                     scores = [
                         existing_match["score"]
-                        for existing_match in frame_matches
-                        if existing_match["key"] == match["key"]
+                        for existing_match
+                        in frame_matches
+                        if existing_match["key"]
+                        == match["key"]
                     ]
-                    score = sum(scores) / len(scores)
-                    print(f"FACE MATCHED EARLY | USER SCORE: {score:.4f}")
-                    failed_attempts["camera_login"] = 0
+
+                    score = (
+                        sum(scores)
+                        / len(scores)
+                    )
+
+                    failed_attempts[
+                        "camera_login"
+                    ] = 0
 
                     return {
                         "success": True,
                         "matched": True,
-                        "message": f"Welcome {username}",
-                        "userid": user.get("userid"),
-                        "username": username,
-                        "distance": score,
-                        "frame_matches": len(scores),
-                        "face_box": face_box,
+                        "message":
+                        f"Welcome {username}",
+                        "userid":
+                        user.get("userid"),
+                        "username":
+                        username,
+                        "distance":
+                        score,
+                        "frame_matches":
+                        len(scores),
+                        "face_box":
+                        face_box
                     }
-            elif match_status == "ambiguous":
-                print("LOGIN FRAME AMBIGUOUS")
 
         if face_detected_count == 0:
             return {
@@ -1077,105 +1204,40 @@ def authenticate(
                 "show_password_login":
                 False,
                 "message":
-                "Face Not Detected",
-            }
-
-        user_matches = {}
-        for match in frame_matches:
-            key = match["key"]
-            user_matches.setdefault(key, {
-                "user": match["user"],
-                "scores": [],
-            })
-            user_matches[key]["scores"].append(match["score"])
-
-        candidates = []
-
-        for key, value in user_matches.items():
-
-            score = (
-                sum(value["scores"])
-                / len(value["scores"])
-            )
-
-            if (
-                len(value["scores"])
-                >= required_frame_matches
-                and score
-                <= MATCH_DISTANCE_THRESHOLD
-            ):
-
-                candidates.append({
-                    "key": key,
-                    "user": value["user"],
-                    "score": score,
-                    "frame_matches":
-                    len(value["scores"]),
-                })
-
-            candidates.sort(
-                key=lambda candidate:
-                candidate["score"]
-            )
-
-            print(
-                "LOGIN USER CANDIDATES:",
-                candidates
-            )
-
-        if (
-            len(candidates) > 1
-            and candidates[1]["score"] - candidates[0]["score"] < MATCH_MARGIN
-        ):
-            print("FACE MATCH AMBIGUOUS")
-            return {
-                "success": False,
-                "matched": False,
-                "message": "Face match is not clear. Please try again.",
-            }
-
-        if candidates:
-            match = candidates[0]
-            user = refresh_user_from_db(
-                match["user"],
-                db_server,
-                db_name,
-                db_user,
-                db_pass,
-                db_driver
-            )
-            username = user["username"]
-            print(f"FACE MATCHED | USER SCORE: {match['score']:.4f}")
-            failed_attempts["camera_login"] = 0
-
-            return {
-                "success": True,
-                "matched": True,
-                "message": f"Welcome {username}",
-                "userid": user.get("userid"),
-                "username": username,
-                "distance": match["score"],
-                "frame_matches": match["frame_matches"],
-                "face_box": face_box if "face_box" in locals() else None,
+                "Face Not Detected"
             }
 
         print("FACE NOT MATCHED")
 
-        failed_attempts["camera_login"] = (failed_attempts.get("camera_login",0)+ 1)
-        attempts = (failed_attempts["camera_login"])
-        remaining = (MAX_FACE_ATTEMPTS- attempts)
-        print(f"FAILED ATTEMPT: {attempts}")
-        if (attempts>=MAX_FACE_ATTEMPTS):
+        failed_attempts["camera_login"] = (
+            failed_attempts.get(
+                "camera_login",
+                0
+            ) + 1
+        )
+
+        attempts = (
+            failed_attempts[
+                "camera_login"
+            ]
+        )
+
+        remaining = (
+            MAX_FACE_ATTEMPTS
+            - attempts
+        )
+
+        if attempts >= MAX_FACE_ATTEMPTS:
+
             return {
                 "success": False,
-            "matched": False,
-            "show_password_login":
-            True,
-            "message":
-            "Face login failed 3 times. Use username and password."
-        }
+                "matched": False,
+                "show_password_login":
+                True,
+                "message":
+                "Face login failed 3 times. Use username and password."
+            }
 
-# Still attempts left
         return {
             "success": False,
             "matched": False,
@@ -1184,11 +1246,15 @@ def authenticate(
             "message":
             f"Face not matched. {remaining} attempts left.",
             "face_box":
-            face_box if "face_box" in locals() else None,
+            face_box
         }
 
     except Exception as e:
-        print("FACE NOT DETECTED")
+
+        print(
+            "FACE NOT DETECTED"
+        )
+
         print(e)
 
         return {
@@ -1197,8 +1263,12 @@ def authenticate(
             "show_password_login":
             False,
             "message":
-            "Face Not Detected",
+            "Face Not Detected"
         }
+
+
+print("INDEX PATH:", INDEX_PATH)
+print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
 
 if __name__ == "__main__":
     import uvicorn

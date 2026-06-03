@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
-from deepface import DeepFace
+#from deepface import DeepFace
+from insightface.app import FaceAnalysis
 import faiss
 import numpy as np
 import os
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import cv2
-import pyodbc
-print("AVAILABLE DRIVERS:", pyodbc.drivers())
 import configparser
 import sys
 from fastapi.staticfiles import StaticFiles
@@ -25,38 +24,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-DIMENSION = 128
+DIMENSION = 512
 # INDEX_PATH = "face_index.faiss"
 # MAPPING_PATH = "user_mapping.json"
 #BASE_STORAGE = "/app/data"
-BASE_STORAGE = os.getenv(
-    "PERSISTENT_STORAGE",
-    "/tmp/facerecognition"
-)
-os.makedirs(
-    BASE_STORAGE,
-    exist_ok=True
-)
-print("test redeploynew")
-INDEX_PATH = os.path.join(
-    BASE_STORAGE,
-    "face_index.faiss"
+
+
+
+face_app = FaceAnalysis(
+    providers=["CPUExecutionProvider"]
 )
 
-MAPPING_PATH = os.path.join(
-    BASE_STORAGE,
-    "user_mapping.json"
+face_app.prepare(
+    ctx_id=-1,
+    det_size=(640, 640)
 )
 
-MODEL_NAME = "Facenet"
-FACE_CASCADE = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
-EYE_CASCADE = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_eye.xml"
-)
-
-MATCH_DISTANCE_THRESHOLD = 0.45
+MATCH_DISTANCE_THRESHOLD = 0.35
 MATCH_MARGIN = 0.06
 MIN_USER_MATCHES = 2
 MIN_REGISTRATION_PHOTOS = 3
@@ -74,6 +58,26 @@ else:
         os.path.abspath(__file__)
     )
 
+BASE_STORAGE = os.path.join(
+    BASE_DIR,
+    "data"
+)
+
+os.makedirs(
+    BASE_STORAGE,
+    exist_ok=True
+)
+print("test redeploynew")
+INDEX_PATH = os.path.join(
+    BASE_STORAGE,
+    "face_index.faiss"
+)
+
+MAPPING_PATH = os.path.join(
+    BASE_STORAGE,
+    "user_mapping.json"
+)
+
 CONFIG_PATH = os.path.join(
     BASE_DIR,
     "config.ini"
@@ -86,7 +90,7 @@ MATCH_DISTANCE_THRESHOLD = float(
     config.get(
         "APP",
         "MATCH_DISTANCE_THRESHOLD",
-        fallback="0.45"
+        fallback="1.00"
     )
 )
 
@@ -151,47 +155,7 @@ failed_attempts = {}
 index = faiss.IndexFlatL2(DIMENSION)
 user_mapping = {}
 
-def get_db_connection(
-    db_server,
-    db_name,
-    db_user,
-    db_pass,
-    db_driver
-):
-    connection_string = (
-        f"DRIVER={{{db_driver}}};"
-        f"SERVER={db_server};"
-        f"DATABASE={db_name};"
-        f"UID={db_user};"
-        f"PWD={db_pass};"
-        "Encrypt=yes;"
-        "TrustServerCertificate=yes;"
-        "Connection Timeout=30;"
-    )
 
-
-    return pyodbc.connect(
-        connection_string,
-        timeout=30
-    )
-
-def get_client_id(conn):
-
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT Value
-        FROM Options2
-        WHERE Name =
-        'RSPL_ClientID'
-    """)
-
-    row = cursor.fetchone()
-
-    if row:
-        return str(row[0])
-
-    return "default"
 
 def get_client_paths(client_id):
 
@@ -215,72 +179,6 @@ def get_client_paths(client_id):
             "user_mapping.json"
         )
     }
-def get_user_from_db(
-    userid: int,
-    db_server,
-    db_name,
-    db_user,
-    db_pass,
-    db_driver
-):
-    with get_db_connection(
-        db_server,
-        db_name,
-        db_user,
-        db_pass,
-        db_driver
-    ) as connection:
-
-        cursor = connection.cursor()
-
-        cursor.execute(
-            """
-            SELECT userid, name
-            FROM usermaster
-            WHERE userid = ?
-            """,
-            userid,
-        )
-
-        row = cursor.fetchone()
-
-    if not row:
-        return None
-
-    return {
-        "userid": int(row.userid),
-        "username": str(row.name),
-    }
-def get_users_from_db(
-    db_server,
-    db_name,
-    db_user,
-    db_pass,
-    db_driver
-):
-    with get_db_connection(
-        db_server,
-        db_name,
-        db_user,
-        db_pass,
-        db_driver
-    ) as connection:
-
-        cursor = connection.cursor()
-
-        cursor.execute(
-            "SELECT userid, name FROM usermaster ORDER BY name"
-        )
-
-        rows = cursor.fetchall()
-
-    return [
-        {
-            "userid": int(row.userid),
-            "username": str(row.name),
-        }
-        for row in rows
-    ]
 
 
 def read_upload_image(photo: UploadFile):
@@ -329,169 +227,72 @@ def read_upload_image(photo: UploadFile):
 
 
 
-def crop_face(image):
-    try:
-        return crop_face_with_deepface_detector(image, backends=("ssd",))
-    except Exception as e:
-        print(f"SSD PRIMARY DETECTOR FAILED: {e}")
 
-    height, width = image.shape[:2]
-    if width > 640:
-        new_width = 640
-        new_height = int(height * (new_width / width))
-        resized_image = cv2.resize(image, (new_width, new_height))
-    else:
-        resized_image = image.copy()
+def get_face_vector(
+    image,
+    return_box=False
+):
 
-    gray = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.equalizeHist(gray)
+    faces = face_app.get(image)
 
-    faces = []
-    detection_settings = [
-        (1.05, 5, (70, 70)),
-        (1.05, 4, (60, 60)),
-        (1.08, 4, (50, 50)),
-    ]
+    if not faces:
+        raise ValueError(
+            "No face detected"
+        )
 
-    for scale_factor, min_neighbors, min_size in detection_settings:
-        faces = list(FACE_CASCADE.detectMultiScale(
-            gray,
-            scaleFactor=scale_factor,
-            minNeighbors=min_neighbors,
-            minSize=min_size,
-        ))
-        if faces:
-            break
-
-    if len(faces) == 0:
-        return crop_face_with_deepface_detector(image, backends=("opencv",))
-
-    x, y, w, h = max(faces, key=lambda face: face[2] * face[3])
-    face_gray = gray[y:y + h, x:x + w]
-    upper_face_gray = face_gray[: int(h * 0.65), :]
-    eyes = EYE_CASCADE.detectMultiScale(
-        upper_face_gray,
-        scaleFactor=1.05,
-        minNeighbors=3,
-        minSize=(15, 15),
+    face = max(
+        faces,
+        key=lambda f:
+        (
+            f.bbox[2] - f.bbox[0]
+        ) * (
+            f.bbox[3] - f.bbox[1]
+        )
     )
 
-    if len(eyes) < 1:
-        return crop_face_with_deepface_detector(image, backends=("opencv",))
-
-    margin = int(max(w, h) * 0.25)
-    x1 = max(x - margin, 0)
-    y1 = max(y - margin, 0)
-    x2 = min(x + w + margin, resized_image.shape[1])
-    y2 = min(y + h + margin, resized_image.shape[0])
-
-    print("OPENCV FACE CROP FOUND")
-    return resized_image[y1:y2, x1:x2], {
-        "x": x1 / resized_image.shape[1],
-        "y": y1 / resized_image.shape[0],
-        "width": (x2 - x1) / resized_image.shape[1],
-        "height": (y2 - y1) / resized_image.shape[0],
-    }
-
-
-def crop_face_with_deepface_detector(image, backends=("ssd", "opencv")):
-    for backend in backends:
-        try:
-            faces = DeepFace.extract_faces(
-                img_path=image,
-                detector_backend=backend,
-                enforce_detection=True,
-                align=True,
-            )
-
-            if not faces:
-                continue
-
-            image_center_x = image.shape[1] / 2
-            image_center_y = image.shape[0] / 2
-
-
-            def face_priority(item):
-
-                area = item.get(
-                    "facial_area", {}
-                )
-
-                x = area.get("x", 0)
-                y = area.get("y", 0)
-                w = area.get("w", 0)
-                h = area.get("h", 0)
-
-                center_x = x + (w / 2)
-                center_y = y + (h / 2)
-
-                face_area = w * h
-
-                distance = (
-                    (
-                        center_x -
-                        image_center_x
-                    ) ** 2
-                    +
-                    (
-                        center_y -
-                        image_center_y
-                    ) ** 2
-                ) ** 0.5
-
-                return (
-                    -distance,
-                    face_area
-                )
-
-
-            selected_face = max(
-                faces,
-                key=face_priority
-            )
-            face = selected_face["face"]
-            area = selected_face.get("facial_area", {})
-
-            face = np.asarray(face)
-            if face.dtype != np.uint8:
-                face = np.clip(face * 255, 0, 255).astype(np.uint8)
-
-            print(f"DEEPFACE {backend.upper()} FACE CROP FOUND")
-            return face, {
-                "x": area.get("x", 0) / image.shape[1],
-                "y": area.get("y", 0) / image.shape[0],
-                "width": area.get("w", image.shape[1]) / image.shape[1],
-                "height": area.get("h", image.shape[0]) / image.shape[0],
-            }
-
-        except Exception as e:
-            print(f"DEEPFACE {backend.upper()} DETECTOR FAILED: {e}")
-
-    raise ValueError("No face detected")
-
-
-def get_face_vector(image, return_box=False):
-    face_image, face_box = crop_face(image)
-    embedding = DeepFace.represent(
-        face_image,
-        model_name=MODEL_NAME,
-        detector_backend="skip",
-        enforce_detection=False,
-    )
-
-    face_vector = np.array(
-        embedding[0]["embedding"],
-        dtype=np.float32,
+    embedding = np.array(
+        face.embedding,
+        dtype=np.float32
     ).reshape(1, -1)
 
-    norm = np.linalg.norm(face_vector)
-    if norm == 0:
-        raise ValueError("Invalid face embedding")
+    norm = np.linalg.norm(
+        embedding
+    )
 
-    normalized_vector = face_vector / norm
+    if norm == 0:
+        raise ValueError(
+            "Invalid face embedding"
+        )
+
+    normalized_vector = (
+        embedding / norm
+    )
+
+    x1, y1, x2, y2 = (
+        face.bbox.astype(int)
+    )
+
+    face_box = {
+        "x":
+        x1 / image.shape[1],
+
+        "y":
+        y1 / image.shape[0],
+
+        "width":
+        (x2 - x1)
+        / image.shape[1],
+
+        "height":
+        (y2 - y1)
+        / image.shape[0]
+    }
 
     if return_box:
-        return normalized_vector, face_box
+        return (
+            normalized_vector,
+            face_box
+        )
 
     return normalized_vector
 
@@ -511,36 +312,6 @@ def get_registered_user(vector_id: int):
 
 def user_key(user):
     return f"{user.get('userid')}::{user.get('username')}"
-
-
-def refresh_user_from_db(
-    user,
-    db_server,
-    db_name,
-    db_user,
-    db_pass,
-    db_driver
-):
-    userid = user.get("userid")
-
-    if userid is None:
-        return user
-
-    try:
-        db_user_data = get_user_from_db(
-            int(userid),
-            db_server,
-            db_name,
-            db_user,
-            db_pass,
-            db_driver
-        )
-
-        return db_user_data or user
-
-    except Exception as e:
-        print(f"DB USER REFRESH FAILED: {e}")
-        return user
 
 
 def find_best_user_match(face_vector):
@@ -634,113 +405,8 @@ def save_database(
             indent=2
         )
 
-@app.get("/db-config",include_in_schema=False)
-def get_db_config():
-
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-
-    return {
-        "db_server":
-            config["DATABASE"]["SERVER"],
-
-        "db_name":
-            config["DATABASE"]["DATABASE"],
-
-        "db_user":
-            config["DATABASE"]["USER"],
-
-        "db_pass":
-            config["DATABASE"]["PASSWORD"],
-
-        "db_driver":
-            config["DATABASE"]["DRIVER"]
-    }
 
 
-
-
-@app.post("/manual-login" ,include_in_schema=False )
-def manual_login(
-    username: str = Form(...),
-    password: str = Form(...),
-    db_server: str = Form(...),
-    db_name: str = Form(...),
-    db_user: str = Form(...),
-    db_pass: str = Form(...),
-    db_driver: str = Form(...)
-):
-
-    try:
-
-        connection = get_db_connection(
-            db_server,
-            db_name,
-            db_user,
-            db_pass,
-            db_driver
-    )
-
-        cursor = connection.cursor()
-
-        cursor.execute(
-            """
-            SELECT
-                userid,
-                name,
-                LoginName
-            FROM usermaster
-            WHERE LoginName = ?
-            AND dbo.Fun_DecryptPwd(
-                Password
-            ) = ?
-            """,
-            (
-               username,
-                password
-            )
-        )
-
-        user = cursor.fetchone()
-
-        connection.close()
-
-        # Login success
-        if user:
-
-            failed_attempts[
-                "camera_login"
-            ] = 0
-
-            return {
-                "success": True,
-                "message":
-                f"Welcome {user.name}",
-                "userid":
-                user.userid,
-                "username":
-                user.LoginName
-            }
-
-        # Wrong credentials
-        return {
-            "success": False,
-            "message":
-            "Invalid username or password"
-        }
-
-    except Exception as e:
-
-        print(
-            "MANUAL LOGIN ERROR:",
-            e
-        )
-
-        return {
-            "success": False,
-            "message":
-            str(e)
-        }
 
 # @app.get("/")
 # def home():
@@ -765,120 +431,21 @@ def login_page():
     return FileResponse("login.html")
 
 
-@app.get("/get-user/{userid}" ,include_in_schema=False)
-def get_user(userid: int):
-
-    try:
-
-        # Read DB config from config.ini
-        config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
-
-        db_server = config["DATABASE"]["SERVER"]
-        db_name = config["DATABASE"]["DATABASE"]
-        db_user = config["DATABASE"]["USER"]
-        db_pass = config["DATABASE"]["PASSWORD"]
-        db_driver = config["DATABASE"]["DRIVER"]
-
-        # Connect DB
-        with get_db_connection(
-            db_server,
-            db_name,
-            db_user,
-            db_pass,
-            db_driver
-        ) as connection:
-
-            cursor = connection.cursor()
-
-            cursor.execute(
-                """
-                SELECT name
-                FROM usermaster
-                WHERE userid = ?
-                """,
-                userid
-            )
-
-            user = cursor.fetchone()
-
-        # User found
-        if user:
-            return {
-                "success": True,
-                "username": str(user[0])
-            }
-
-        # User not found
-        return {
-            "success": False,
-            "message": "User ID not found"
-        }
-
-    except Exception as e:
-
-        print("GET USER ERROR:", e)
-
-        return {
-            "success": False,
-            "message": str(e)
-        }
     
-@app.post("/users",include_in_schema=False)
-def users(
-    db_server: str = Form(...),
-    db_name: str = Form(...),
-    db_user: str = Form(...),
-    db_pass: str = Form(...),
-    db_driver: str = Form(...)
-):
-    try:
-        return {
-            "success": True,
-            "users": get_users_from_db(
-                db_server,
-                db_name,
-                db_user,
-                db_pass,
-                db_driver
-            ),
-        }
 
-    except Exception as e:
-        return {
-            "success": False,
-            "message": str(e),
-            "users": [],
-        }
 @app.post("/upload-entity")
 def upload_entity(
+    clientid: str = Form(...),
     userid: int = Form(...),
+    username: str = Form(...),
     photos: list[UploadFile] = File(...)
 ):
 
     # Read DB config from config.ini
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-
-    db_server = config["DATABASE"]["SERVER"]
-    db_name = config["DATABASE"]["DATABASE"]
-    db_user = config["DATABASE"]["USER"]
-    db_pass = config["DATABASE"]["PASSWORD"]
-    db_driver = config["DATABASE"]["DRIVER"]
-
-    connection = get_db_connection(
-        db_server,
-        db_name,
-        db_user,
-        db_pass,
-        db_driver
-    )
-
-    client_id = get_client_id(connection)
-    connection.close()
+   
+    client_id = str(clientid)
 
     print("CLIENT ID:", client_id)
-
     paths = get_client_paths(client_id)
 
     global INDEX_PATH
@@ -900,38 +467,7 @@ def upload_entity(
     else:
         user_mapping = {}
 
-    try:
-        user_data = get_user_from_db(
-            userid,
-            db_server,
-            db_name,
-            db_user,
-            db_pass,
-            db_driver
-        )
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "message": f"Database error: {e}",
-            "userid": userid,
-            "photos_registered": 0,
-            "photos_skipped": 0,
-            "total_vectors": index.ntotal,
-        }
-
-    if not user_data:
-        return {
-            "success": False,
-            "message": f"User ID {userid} not found in usermaster.",
-            "userid": userid,
-            "photos_registered": 0,
-            "photos_skipped": 0,
-            "total_vectors": index.ntotal,
-        }
-
-    username = user_data["username"]
+    
     face_vectors = []
     skipped_photos = []
 
@@ -1029,26 +565,11 @@ from typing import Optional, List
 
 @app.post("/authenticate")
 def authenticate(
+    clientid: str = Form(...),
     photo: Optional[UploadFile] = File(None),
     photos: List[UploadFile] = File(...)
 ):
-    # DB config from config.ini
-    db_server = config["DATABASE"]["SERVER"]
-    db_name = config["DATABASE"]["DATABASE"]
-    db_user = config["DATABASE"]["USER"]
-    db_pass = config["DATABASE"]["PASSWORD"]
-    db_driver = config["DATABASE"]["DRIVER"]
-
-    connection = get_db_connection(
-        db_server,
-        db_name,
-        db_user,
-        db_pass,
-        db_driver
-    )
-
-    client_id = get_client_id(connection)
-    connection.close()
+    client_id = str(clientid)
 
     print("CLIENT ID:", client_id)
 
@@ -1152,14 +673,7 @@ def authenticate(
                     >= required_frame_matches
                 ):
 
-                    user = refresh_user_from_db(
-                        match["user"],
-                        db_server,
-                        db_name,
-                        db_user,
-                        db_pass,
-                        db_driver
-                    )
+                    user = match["user"]
 
                     username = user["username"]
 
