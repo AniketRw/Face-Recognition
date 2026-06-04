@@ -461,17 +461,19 @@ def welcome_page():
     return FileResponse("welcome.html")
 
 
+# @app.get("/login.html", include_in_schema=False)
+# def login_page():
+#     return FileResponse(
+#         "login.html",
+#         headers={
+#             "Cache-Control":
+#             "no-cache, no-store, must-revalidate"
+#         }
+#     )
+
 @app.get("/login.html", include_in_schema=False)
 def login_page():
-    return FileResponse(
-        "login.html",
-        headers={
-            "Cache-Control":
-            "no-cache, no-store, must-revalidate"
-        }
-    )
-
-
+    return {"test": "aniket123"}
     
 
 @app.post("/upload-entity")
