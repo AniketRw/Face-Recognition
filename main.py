@@ -1,3 +1,4 @@
+print("HELLO NEW VERSION CD08E47")
 from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
 #from deepface import DeepFace
@@ -461,19 +462,17 @@ def welcome_page():
     return FileResponse("welcome.html")
 
 
-# @app.get("/login.html", include_in_schema=False)
-# def login_page():
-#     return FileResponse(
-#         "login.html",
-#         headers={
-#             "Cache-Control":
-#             "no-cache, no-store, must-revalidate"
-#         }
-#     )
-
 @app.get("/login.html", include_in_schema=False)
 def login_page():
-    return {"test": "aniket123"}
+    return FileResponse(
+        "login.html",
+        headers={
+            "Cache-Control":
+            "no-cache, no-store, must-revalidate"
+        }
+    )
+
+
     
 
 @app.post("/upload-entity")
