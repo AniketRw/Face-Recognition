@@ -443,7 +443,13 @@ def delete_client_data(
 
 @app.get("/")
 def home():
-    return FileResponse("login.html")
+    return FileResponse(
+        "login.html",
+        headers={
+            "Cache-Control":
+            "no-cache, no-store, must-revalidate"
+        }
+    )
 
 @app.get("/index.html",include_in_schema=False)
 def index_page():
@@ -455,9 +461,15 @@ def welcome_page():
     return FileResponse("welcome.html")
 
 
-@app.get("/login.html",include_in_schema=False)
+@app.get("/login.html", include_in_schema=False)
 def login_page():
-    return FileResponse("login.html")
+    return FileResponse(
+        "login.html",
+        headers={
+            "Cache-Control":
+            "no-cache, no-store, must-revalidate"
+        }
+    )
 
 
     
