@@ -1,4 +1,4 @@
-print("HELLO NEW VERSION CD08E47")
+
 from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
 #from deepface import DeepFace
