@@ -14,8 +14,9 @@ import sys
 import pyodbc
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-
+print("STEP 1")
 app = FastAPI()
+print("STEP 5")
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 
@@ -32,7 +33,7 @@ DIMENSION = 512
 #BASE_STORAGE = "/app/data"
 
 
-
+print("STEP 2")
 face_app = FaceAnalysis(
     name='buffalo_s',
     allowed_modules=['detection', 'recognition'],
@@ -43,6 +44,7 @@ face_app.prepare(
     ctx_id=-1,
     det_size=(320, 320)
 )
+print("STEP 3")
 
 # --- Model Warm-up Sequence ---
 # This prevents the "Cold Start" delay on the first registration
@@ -103,6 +105,8 @@ CONFIG_PATH = os.path.join(
 
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
+
+print("STEP 4") 
 
 MATCH_DISTANCE_THRESHOLD = float(
     config.get(
