@@ -216,79 +216,6 @@ video{
         scaleX(-1);
 }
 
-.scan-frame{
-
-    position:absolute;
-
-    width:62%;
-    height:72%;
-
-    top:14%;
-    left:19%;
-
-    border:
-        3px solid
-        #38bdf8;
-
-    border-radius:24px;
-
-    box-shadow:
-        0 0 25px
-        rgba(56,189,248,.6);
-
-    animation:
-        pulseFrame
-        2s infinite;
-}
-
-@keyframes pulseFrame{
-
-    0%,100%{
-        transform:scale(1);
-    }
-
-    50%{
-        transform:scale(1.03);
-    }
-}
-
-.scan-line{
-
-    position:absolute;
-
-    width:62%;
-    height:4px;
-
-    left:19%;
-
-    background:
-        linear-gradient(
-            to right,
-            transparent,
-            #38bdf8,
-            transparent
-        );
-
-    box-shadow:
-        0 0 15px
-        #38bdf8;
-
-    animation:
-        scanMove
-        2.5s infinite linear;
-}
-
-@keyframes scanMove{
-
-    0%{
-        top:18%;
-    }
-
-    100%{
-        top:76%;
-    }
-}
-
 .capture-btn{
 
     width:100%;
@@ -359,9 +286,9 @@ video{
         Face Registration
     </h1>
 
-    <p>
+    <p id="instruction-p">
         Enter user details and
-        capture 5 face photos
+        follow the instructions
     </p>
 
     <div class="input-box">
@@ -377,7 +304,8 @@ video{
         		this.value.replace(
             			/[^0-9]/g,
             			''
-        		)
+        		);
+                getUsername(this.value);
     		"
 	>
 
@@ -403,10 +331,6 @@ video{
             playsinline
         ></video>
 
-        <div class="scan-frame"></div>
-
-        <div class="scan-line"></div>
-
     </div>
 
     <button
@@ -414,6 +338,14 @@ video{
         onclick="registerFace()"
     >
         Capture Face
+    </button>
+
+    <button
+        class="capture-btn"
+        style="margin-top: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"
+        onclick="resetRegistration()"
+    >
+        Reset Form
     </button>
 
     <div
@@ -432,26 +364,8 @@ video{
 
 <script>
 
-const params =
-    new URLSearchParams(
-        window.location.search
-    );
-
 const CLIENT_ID =
-    params.get(
-        "clientid"
-    );
-
-if(!CLIENT_ID){
-
-    alert(
-        "Client ID Missing"
-    );
-
-    throw new Error(
-        "Client ID Missing"
-    );
-}
+    "19557";
 
 
 
@@ -470,6 +384,16 @@ const statusText =
         "status"
     );
 
+let currentStep = 0;
+let capturedPhotos = [];
+const instructions = [
+    "Look Straight",
+    "Turn Left",
+    "Turn Right",
+    "Look Up",
+    "Look Straight"
+];
+
 navigator
 .mediaDevices
 .getUserMedia({
@@ -481,7 +405,7 @@ navigator
         stream;
 
     statusText.innerText =
-        "Camera Ready";
+        instructions[0];
 
 })
 .catch(function(error){
@@ -495,6 +419,48 @@ navigator
     console.log(error);
 });
 
+async function getUsername(userid) {
+    const usernameBox = document.getElementById("username");
+    
+    // Reset capture flow if User ID is typed/changed
+    resetRegistrationState();
+
+    if (!userid) {
+        usernameBox.value = "";
+        return;
+    }
+
+    try {
+        const response = await fetch(`/get-user/${userid}`);
+        const data = await response.json();
+        if (data.success) {
+            usernameBox.value = data.username;
+        } else {
+            usernameBox.value = "";
+        }
+    } catch (error) {
+        console.log("Fetch error:", error);
+    }
+}
+
+function resetRegistrationState() {
+    currentStep = 0;
+    capturedPhotos = [];
+    statusText.innerText = instructions[0];
+    statusText.classList.remove("success", "error");
+    const captureBtn = document.querySelector('.capture-btn');
+    if (captureBtn) {
+        captureBtn.disabled = false;
+        captureBtn.innerText = "Capture Face";
+    }
+}
+
+function resetRegistration() {
+    document.getElementById("userid").value = "";
+    document.getElementById("username").value = "";
+    resetRegistrationState();
+}
+
 async function captureFrame(
     filename
 ){
@@ -504,11 +470,8 @@ async function captureFrame(
             "2d"
         );
 
-    canvas.width =
-        video.videoWidth;
-
-    canvas.height =
-        video.videoHeight;
+    canvas.width = 480;
+    canvas.height = 360;
 
     context.drawImage(
         video,
@@ -531,7 +494,7 @@ async function captureFrame(
 
             },
             "image/jpeg",
-            0.9
+            0.5
         );
 
     });
@@ -561,40 +524,25 @@ async function registerFace(){
         return;
     }
 
-    const photos = [];
+    const captureBtn = document.querySelector('.capture-btn');
+    
+    // Capture current frame
+    statusText.innerText = "Capturing...";
+    const frame = await captureFrame(`face_${currentStep + 1}.jpg`);
+    capturedPhotos.push(frame);
+    currentStep++;
 
-    for(
-        let i = 1;
-        i <= 5;
-        i++
-    ){
-
-        statusText.innerText =
-            "Capturing Photo "
-            + i +
-            "/5";
-
-        const frame =
-            await captureFrame(
-                "face_"
-                + i +
-                ".jpg"
-            );
-
-        photos.push(
-            frame
-        );
-
-        await new Promise(
-            r => setTimeout(
-                r,
-                500
-            )
-        );
+    if (currentStep < instructions.length) {
+        // Prepare for next step
+        statusText.innerText = instructions[currentStep];
+        captureBtn.innerText = `Capture (${currentStep}/5)`;
+        return;
     }
 
-    statusText.innerText =
-        "Registering Face...";
+    // All photos captured, start upload
+    statusText.innerText = "Registering Face...";
+    captureBtn.disabled = true;
+    captureBtn.innerText = "Processing...";
 
     try{
 
@@ -616,7 +564,7 @@ async function registerFace(){
             username
         );
 
-        photos.forEach(
+        capturedPhotos.forEach(
             function(photo){
 
             formData.append(
@@ -648,11 +596,30 @@ async function registerFace(){
 
             statusText.classList
             .add("success");
+            captureBtn.innerText = "Registered!";
+            
+            // Reset state after success to allow second user registration
+            setTimeout(() => {
+                currentStep = 0;
+                capturedPhotos = [];
+                statusText.innerText = instructions[0];
+                statusText.classList.remove("success", "error");
+                captureBtn.disabled = false;
+                captureBtn.innerText = "Capture Face";
+                // Clear inputs for new user
+                document.getElementById("userid").value = "";
+                document.getElementById("username").value = "";
+            }, 1500);
 
         }else{
 
             statusText.classList
             .add("error");
+            captureBtn.disabled = false;
+            captureBtn.innerText = "Retry Registration";
+            // Reset capture state on failure so they can try again
+            currentStep = 0;
+            capturedPhotos = [];
         }
 
     }catch(error){
@@ -662,6 +629,13 @@ async function registerFace(){
 
         statusText.classList
         .add("error");
+
+        captureBtn.disabled = false;
+        captureBtn.innerText = "Retry Registration";
+        
+        // Reset capture state on failure
+        currentStep = 0;
+        capturedPhotos = [];
 
         console.log(error);
     }
