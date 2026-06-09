@@ -491,14 +491,33 @@ def get_user(userid: int):
             "message": str(e)
         }
 
+# @app.get("/")
+# def home():
+#     return FileResponse(
+#         "login.html",
+#         headers={
+#             "Cache-Control":
+#             "no-cache, no-store, must-revalidate"
+#         }
+#     )
+
 @app.get("/")
 def home():
+
+    print(
+        "LOGIN EXISTS:",
+        os.path.exists(
+            "login.html"
+        )
+    )
+
+    print(
+        "CURRENT DIR:",
+        os.getcwd()
+    )
+
     return FileResponse(
-        "login.html",
-        headers={
-            "Cache-Control":
-            "no-cache, no-store, must-revalidate"
-        }
+        "login.html"
     )
 
 @app.get("/index.html",include_in_schema=False)
