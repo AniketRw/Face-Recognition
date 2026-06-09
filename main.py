@@ -35,7 +35,7 @@ DIMENSION = 512
 #BASE_STORAGE = "/app/data"
 
 
-print("STEP 2")
+print("STEP 10")
 face_app = FaceAnalysis(
     name='buffalo_s',
     allowed_modules=['detection', 'recognition'],
