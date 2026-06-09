@@ -1,15 +1,16 @@
 from fastapi import FastAPI
+import uvicorn
 
 app = FastAPI()
 
 @app.get("/")
 def home():
-    return {
-        "message": "working"
-    }
+    return {"message": "working"}
 
-@app.get("/login.html")
-def login():
-    return {
-        "message": "login working"
-    }
+if __name__ == "__main__":
+    print("STARTED OK")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000
+    )
