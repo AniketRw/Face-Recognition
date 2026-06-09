@@ -3,6 +3,8 @@ from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
 #from deepface import DeepFace
 from insightface.app import FaceAnalysis
+from fastapi.responses import RedirectResponse
+
 import faiss
 import numpy as np
 import os
@@ -503,23 +505,9 @@ def get_user(userid: int):
 
 @app.get("/")
 def home():
-
-    print(
-        "LOGIN EXISTS:",
-        os.path.exists(
-            "login.html"
-        )
+    return RedirectResponse(
+        url="/login.html"
     )
-
-    print(
-        "CURRENT DIR:",
-        os.getcwd()
-    )
-
-    return FileResponse(
-        "login.html"
-    )
-
 @app.get("/index.html",include_in_schema=False)
 def index_page():
     return FileResponse("index.html")
