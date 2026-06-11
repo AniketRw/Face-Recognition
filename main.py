@@ -393,13 +393,22 @@ def save_database(
             exist_ok=True
         )
 
+        tmp_index = index_path + ".tmp"
+
         faiss.write_index(
             index,
+            tmp_index
+        )
+
+        os.replace(
+            tmp_index,
             index_path
         )
 
+        tmp_mapping = mapping_path + ".tmp"
+
         with open(
-            mapping_path,
+            tmp_mapping,
             "w"
         ) as file:
 
@@ -407,6 +416,11 @@ def save_database(
                 user_mapping,
                 file,
                 indent=2
+            )
+
+            os.replace(
+                tmp_mapping,
+                mapping_path
             )
 
         print(
