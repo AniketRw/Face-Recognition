@@ -817,6 +817,18 @@ def debug_files():
         }
 
 
+@app.get("/debug-volume")
+def debug_volume():
+    import os
+
+    return {
+        "cwd": os.getcwd(),
+        "app_data_exists": os.path.exists("/app/data"),
+        "app_data_contents": os.listdir("/app/data") if os.path.exists("/app/data") else [],
+        "env": os.environ.get("CAPROVER_GIT_COMMIT_SHA", "not-found")
+    }
+
+
 
 if __name__ == "__main__":
     import uvicorn
