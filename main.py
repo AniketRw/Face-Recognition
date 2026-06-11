@@ -80,7 +80,7 @@ else:
         os.path.abspath(__file__)
     )
 
-BASE_STORAGE = "/captain/data"
+BASE_STORAGE = "/app/data"
 
 
 
@@ -780,7 +780,7 @@ def debug_files():
 
     import os
 
-    base = "/captain/data"
+    base = "/app/data"
 
     result = {}
 
