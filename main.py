@@ -829,6 +829,27 @@ def debug_volume():
     }
 
 
+@app.get("/docker-volume-check")
+def docker_volume_check():
+    import os
+    import subprocess
+
+    try:
+        mount_info = subprocess.getoutput("mount | grep app/data")
+        disk_info = subprocess.getoutput("df -h")
+
+        return {
+            "path_exists": os.path.exists("/app/data"),
+            "contents": os.listdir("/app/data") if os.path.exists("/app/data") else [],
+            "mount_info": mount_info,
+            "disk_info": disk_info
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
