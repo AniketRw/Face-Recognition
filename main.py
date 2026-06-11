@@ -782,20 +782,40 @@ print("INDEX PATH:", INDEX_PATH)
 print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
 
 
+
 @app.get("/debug-files")
 def debug_files():
 
     import os
 
-    base = "/app/data"
+    try:
 
-    result = {}
+        base = "/app/data"
 
-    for root, dirs, files in os.walk(base):
+        result = {}
 
-        result[root] = files
+        if not os.path.exists(base):
+            return {
+                "error": "BASE PATH NOT FOUND",
+                "base": base
+            }
 
-    return result
+        for root, dirs, files in os.walk(base):
+
+            result[root] = files
+
+        return {
+            "success": True,
+            "data": result
+        }
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 
 
 if __name__ == "__main__":
