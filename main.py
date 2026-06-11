@@ -380,6 +380,7 @@ def find_best_user_match(face_vector, index, user_mapping):
     return candidates[0], "matched"
 
 
+
 def save_database(
     index,
     user_mapping,
@@ -393,22 +394,15 @@ def save_database(
             exist_ok=True
         )
 
-        tmp_index = index_path + ".tmp"
-
+        # Save FAISS directly
         faiss.write_index(
             index,
-            tmp_index
-        )
-
-        os.replace(
-            tmp_index,
             index_path
         )
 
-        tmp_mapping = mapping_path + ".tmp"
-
+        # Save mapping directly
         with open(
-            tmp_mapping,
+            mapping_path,
             "w"
         ) as file:
 
@@ -418,10 +412,8 @@ def save_database(
                 indent=2
             )
 
-            os.replace(
-                tmp_mapping,
-                mapping_path
-            )
+            file.flush()
+            os.fsync(file.fileno())
 
         print(
             "FAISS SAVED:",
@@ -439,6 +431,7 @@ def save_database(
             "SAVE DATABASE ERROR:",
             str(e)
         )
+
 
 @app.post("/delete-client-data")
 def delete_client_data(
