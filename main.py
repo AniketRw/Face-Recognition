@@ -386,21 +386,44 @@ def save_database(
     index_path,
     mapping_path
 ):
+    try:
 
-    faiss.write_index(
-        index,
-        index_path
-    )
+        os.makedirs(
+            os.path.dirname(index_path),
+            exist_ok=True
+        )
 
-    with open(
-        mapping_path,
-        "w"
-    ) as file:
+        faiss.write_index(
+            index,
+            index_path
+        )
 
-        json.dump(
-            user_mapping,
-            file,
-            indent=2
+        with open(
+            mapping_path,
+            "w"
+        ) as file:
+
+            json.dump(
+                user_mapping,
+                file,
+                indent=2
+            )
+
+        print(
+            "FAISS SAVED:",
+            os.path.exists(index_path)
+        )
+
+        print(
+            "MAPPING SAVED:",
+            os.path.exists(mapping_path)
+        )
+
+    except Exception as e:
+
+        print(
+            "SAVE DATABASE ERROR:",
+            str(e)
         )
 
 @app.post("/delete-client-data")
