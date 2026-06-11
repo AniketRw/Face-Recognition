@@ -641,7 +641,7 @@ def authenticate(
     print("CLIENT:", client_id)
     print("ACTUAL INDEX PATH:", index_path)
     print("INDEX EXISTS:", os.path.exists(index_path))
-    print("TOTAL FACES:", current_index.ntotal)
+    #print("TOTAL FACES:", current_index.ntotal)
 
     # Load local database for this client
     if os.path.exists(index_path):
