@@ -546,6 +546,8 @@ def upload_entity(
     index_path = paths["faiss"]
     mapping_path = paths["mapping"]
 
+
+
     # Load local database for this client
     if os.path.exists(index_path):
         current_index = faiss.read_index(index_path)
@@ -557,7 +559,13 @@ def upload_entity(
             current_mapping = json.load(file)
     else:
         current_mapping = {}
-
+    print("SAVED INDEX:", index_path)
+    print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
+    print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
+    print("LOGIN CLIENT:", client_id)
+    print("LOGIN INDEX:", index_path)
+    print("INDEX EXISTS:", os.path.exists(index_path))
+    print("TOTAL FACES:", current_index.ntotal)
     face_vectors = []
     skipped_photos = []
 
@@ -629,6 +637,11 @@ def authenticate(
 
     index_path = paths["faiss"]
     mapping_path = paths["mapping"]
+
+    print("CLIENT:", client_id)
+    print("ACTUAL INDEX PATH:", index_path)
+    print("INDEX EXISTS:", os.path.exists(index_path))
+    print("TOTAL FACES:", current_index.ntotal)
 
     # Load local database for this client
     if os.path.exists(index_path):
