@@ -747,8 +747,26 @@ def authenticate(
         }
 
 
+
 print("INDEX PATH:", INDEX_PATH)
 print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
+
+
+@app.get("/debug-files")
+def debug_files():
+
+    import os
+
+    base = "/captain/data"
+
+    result = {}
+
+    for root, dirs, files in os.walk(base):
+
+        result[root] = files
+
+    return result
+
 
 if __name__ == "__main__":
     import uvicorn
