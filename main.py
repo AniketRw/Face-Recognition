@@ -559,9 +559,7 @@ def upload_entity(
             current_mapping = json.load(file)
     else:
         current_mapping = {}
-    print("SAVED INDEX:", index_path)
-    print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
-    print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
+
     print("LOGIN CLIENT:", client_id)
     print("LOGIN INDEX:", index_path)
     print("INDEX EXISTS:", os.path.exists(index_path))
@@ -614,7 +612,9 @@ def upload_entity(
     
     total_time = time.time() - start_time
     print(f"--- REGISTRATION COMPLETE | TOTAL TIME: {total_time:.3f}s ---")
-
+    print("SAVED INDEX:", index_path)
+    print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
+    print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
     return {
         "success": True,
         "message": f"Face registered successfully for {username}.",
