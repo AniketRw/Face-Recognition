@@ -786,19 +786,15 @@ cameraShell.style.boxShadow =
                     cameraShell.style.boxShadow =
                         "0 0 50px #00ff88";
 
-                   
                     localStorage.setItem(
                         "loggedInUser",
                         data.username
                     );
 
-
-                    
                     localStorage.setItem(
-                        "loggedInUser",
-                        data.username
+                        "loggedInUserId",
+                        data.userid
                     );
-
 
                     window.location.replace(
                         "welcome.html"
@@ -1016,20 +1012,25 @@ cameraShell.style.boxShadow =
             );
 
             localStorage.setItem(
-                "loggedInUser",
-                data.username
-            );
+    "loggedInUser",
+    data.username
+);
 
-            setTimeout(
-                function () {
+localStorage.setItem(
+    "loggedInUserId",
+    data.userid
+);
 
-                    window.location.replace(
-                        "welcome.html"
-                    );
+setTimeout(
+    function () {
 
-                },
-                1000
-            );
+        window.location.replace(
+            "welcome.html"
+        );
+
+    },
+    5000
+);
 
         } else {
 
