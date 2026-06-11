@@ -565,7 +565,7 @@ def upload_entity(
     print("LOGIN CLIENT:", client_id)
     print("LOGIN INDEX:", index_path)
     print("INDEX EXISTS:", os.path.exists(index_path))
-    print("TOTAL FACES:", current_index.ntotal)
+    #print("TOTAL FACES:", current_index.ntotal)
     face_vectors = []
     skipped_photos = []
 
