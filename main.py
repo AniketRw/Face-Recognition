@@ -106,7 +106,7 @@ CONFIG_PATH = os.path.join(
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-print("STEP 4") 
+print("STEP 100") 
 
 MATCH_DISTANCE_THRESHOLD = float(
     config.get(
