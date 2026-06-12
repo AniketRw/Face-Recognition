@@ -16,9 +16,14 @@ import sys
 import pyodbc
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-print("STEP 1")
+import os
+
+DATA_DIR = "/app/data"
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
 app = FastAPI()
-print("STEP 5")
+
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 
@@ -849,7 +854,39 @@ def docker_volume_check():
         return {"error": str(e)}
 
 
+@app.post("/manual-login")
+def manual_login(
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    try:
+        with get_db_connection() as connection:
+            cursor = connection.cursor()
+            cursor.execute(
+                "SELECT userid, name FROM usermaster WHERE loginname = ? AND password = ?",
+                username, password
+            )
+            user = cursor.fetchone()
 
+        if user:
+            return {
+                "success": True,
+                "message": f"Welcome {user[1]}",
+                "userid": user[0],
+                "username": str(user[1])
+            }
+
+        return {
+            "success": False,
+            "message": "Invalid username or password"
+        }
+
+    except Exception as e:
+        print("MANUAL LOGIN ERROR:", e)
+        return {
+            "success": False,
+            "message": "Login failed"
+        }
 
 if __name__ == "__main__":
     import uvicorn
