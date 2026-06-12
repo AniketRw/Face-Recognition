@@ -857,7 +857,17 @@ def remove_user(
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal
     }
-
+@app.get("/debug-paths/{clientid}")
+def debug_paths(clientid: str):
+    paths = get_client_paths(clientid)
+    return {
+        "index_path": paths["faiss"],
+        "mapping_path": paths["mapping"],
+        "index_exists": os.path.exists(paths["faiss"]),
+        "mapping_exists": os.path.exists(paths["mapping"]),
+        "base_storage": BASE_STORAGE,
+        "all_client_folders": os.listdir(BASE_STORAGE) if os.path.exists(BASE_STORAGE) else []
+    }
 
 if __name__ == "__main__":
     import uvicorn
