@@ -438,42 +438,6 @@ def save_database(
         )
 
 
-@app.post("/delete-client-data")
-def delete_client_data(
-    clientid: str = Form(...)
-):
-    import shutil
-
-    client_path = os.path.join(
-        BASE_STORAGE,
-        str(clientid)
-    )
-
-    print("BASE_DIR:", BASE_DIR)
-    print("BASE_STORAGE:", BASE_STORAGE)
-    print("CLIENT_PATH:", client_path)
-    print("PATH_EXISTS:", os.path.exists(client_path))
-
-    if not os.path.exists(client_path):
-        return {
-            "success": False,
-            "message": "Client data not found",
-            "base_dir": BASE_DIR,
-            "base_storage": BASE_STORAGE,
-            "client_path": client_path,
-            "exists": os.path.exists(client_path)
-        }
-
-    shutil.rmtree(client_path)
-
-    return {
-        "success": True,
-        "message":
-        f"Deleted all data for client {clientid}",
-        "deleted_path": client_path
-    }
-
-
 def get_db_connection():
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
@@ -787,71 +751,6 @@ print("INDEX PATH:", INDEX_PATH)
 print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
 
 
-
-@app.get("/debug-files")
-def debug_files():
-
-    import os
-
-    try:
-
-        base = "/app/data"
-
-        result = {}
-
-        if not os.path.exists(base):
-            return {
-                "error": "BASE PATH NOT FOUND",
-                "base": base
-            }
-
-        for root, dirs, files in os.walk(base):
-
-            result[root] = files
-
-        return {
-            "success": True,
-            "data": result
-        }
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@app.get("/debug-volume")
-def debug_volume():
-    import os
-
-    return {
-        "cwd": os.getcwd(),
-        "app_data_exists": os.path.exists("/app/data"),
-        "app_data_contents": os.listdir("/app/data") if os.path.exists("/app/data") else [],
-        "env": os.environ.get("CAPROVER_GIT_COMMIT_SHA", "not-found")
-    }
-
-
-@app.get("/docker-volume-check")
-def docker_volume_check():
-    import os
-    import subprocess
-
-    try:
-        mount_info = subprocess.getoutput("mount | grep app/data")
-        disk_info = subprocess.getoutput("df -h")
-
-        return {
-            "path_exists": os.path.exists("/app/data"),
-            "contents": os.listdir("/app/data") if os.path.exists("/app/data") else [],
-            "mount_info": mount_info,
-            "disk_info": disk_info
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @app.post("/manual-login")
