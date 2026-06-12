@@ -4,7 +4,7 @@ from typing import Optional
 #from deepface import DeepFace
 from insightface.app import FaceAnalysis
 from fastapi.responses import RedirectResponse
-
+import socket
 import faiss
 import numpy as np
 import os
@@ -874,6 +874,15 @@ def debug_files(clientid: str):
     return {
         "folder_exists": os.path.exists(base_path),
         "files_inside": os.listdir(base_path) if os.path.exists(base_path) else []
+    }
+
+
+@app.get("/server-check")
+def server_check():
+    return {
+        "hostname": socket.gethostname(),
+        "base_storage": BASE_STORAGE,
+        "folders": os.listdir(BASE_STORAGE)
     }
 if __name__ == "__main__":
     import uvicorn
