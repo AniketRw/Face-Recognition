@@ -179,12 +179,43 @@ failed_attempts = {}
 # else:
 #     user_mapping = {}
 #     print("New User Mapping")
+# def get_client_paths(client_id):
+
+#     base_path = os.path.join(
+#         BASE_STORAGE,
+#         str(client_id)
+#     )
+
+#     os.makedirs(
+#         base_path,
+#         exist_ok=True
+#     )
+
+#     return {
+#         "faiss": os.path.join(
+#             base_path,
+#             "face_index.faiss"
+#         ),
+#         "mapping": os.path.join(
+#             base_path,
+#             "user_mapping.json"
+#         )
+#     }
+
 def get_client_paths(client_id):
+
+    print("RAW CLIENT ID:", repr(client_id))
+
+    clean_client_id = str(client_id).strip()
+
+    print("CLEAN CLIENT ID:", repr(clean_client_id))
 
     base_path = os.path.join(
         BASE_STORAGE,
-        str(client_id)
+        clean_client_id
     )
+
+    print("FINAL BASE PATH:", repr(base_path))
 
     os.makedirs(
         base_path,
@@ -201,8 +232,6 @@ def get_client_paths(client_id):
             "user_mapping.json"
         )
     }
-
-
 def read_upload_image(photo: UploadFile):
 
     image_bytes = photo.file.read()
@@ -538,7 +567,8 @@ def upload_entity(
     import time
     start_time = time.time()
     
-    client_id = str(clientid)
+    #client_id = str(clientid)
+    client_id = str(clientid).strip()
     print(f"--- STARTING REGISTRATION FOR {username} (ID: {userid}) ---")
     paths = get_client_paths(client_id)
 
@@ -631,7 +661,8 @@ def authenticate(
     photo: Optional[UploadFile] = File(None),
     photos: List[UploadFile] = File(...)
 ):
-    client_id = str(clientid)
+    #client_id = str(clientid)
+    client_id = str(clientid).strip()
     paths = get_client_paths(client_id)
 
     index_path = paths["faiss"]
@@ -884,6 +915,20 @@ def server_check():
         "base_storage": BASE_STORAGE,
         "folders": os.listdir(BASE_STORAGE)
     }
+
+@app.get("/debug-all-folders")
+def debug_all_folders():
+    result = {}
+
+    for folder in os.listdir(BASE_STORAGE):
+        path = os.path.join(BASE_STORAGE, folder)
+
+        result[repr(folder)] = {
+            "files": os.listdir(path)
+        }
+
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
