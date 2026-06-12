@@ -1,7 +1,10 @@
 {
   "schemaVersion": 2,
   "dockerfilePath": "./Dockerfile",
-  "volumes": {
-    "/app/data": "/captain/data/facerecognition"
-  }
+  "volumes": [
+    {
+      "containerPath": "/app/data",
+      "volumeName": "facedata"
+    }
+  ]
 }
