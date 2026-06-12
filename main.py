@@ -868,7 +868,13 @@ def debug_paths(clientid: str):
         "base_storage": BASE_STORAGE,
         "all_client_folders": os.listdir(BASE_STORAGE) if os.path.exists(BASE_STORAGE) else []
     }
-
+@app.get("/debug-files/{clientid}")
+def debug_files(clientid: str):
+    base_path = os.path.join(BASE_STORAGE, str(clientid))
+    return {
+        "folder_exists": os.path.exists(base_path),
+        "files_inside": os.listdir(base_path) if os.path.exists(base_path) else []
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
