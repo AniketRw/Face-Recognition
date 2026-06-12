@@ -787,6 +787,78 @@ def manual_login(
             "message": "Login failed"
         }
 
+@app.post("/remove-user")
+def remove_user(
+    clientid: str = Form(...),
+    userid: int = Form(...)
+):
+    client_id = str(clientid)
+    paths = get_client_paths(client_id)
+
+    index_path = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    # Load existing database
+    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "message": "No face database found for this client"
+        }
+
+    current_index = faiss.read_index(index_path)
+
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+    # Find all vector IDs that belong to this userid
+    ids_to_remove = set()
+    for vector_id_str, user_data in current_mapping.items():
+        stored_userid = (
+            user_data.get("userid")
+            if isinstance(user_data, dict)
+            else None
+        )
+        if stored_userid == userid:
+            ids_to_remove.add(int(vector_id_str))
+
+    if not ids_to_remove:
+        return {
+            "success": False,
+            "message": f"No face data found for userid {userid} in client {client_id}"
+        }
+
+    # Collect vector IDs to KEEP
+    ids_to_keep = [
+        int(vid)
+        for vid in current_mapping.keys()
+        if int(vid) not in ids_to_remove
+    ]
+
+    # Reconstruct kept vectors from existing index
+    kept_vectors = []
+    for old_id in ids_to_keep:
+        vec = current_index.reconstruct(old_id)
+        kept_vectors.append(vec)
+
+    # Build a fresh index with only the kept vectors
+    new_index = faiss.IndexFlatL2(DIMENSION)
+    new_mapping = {}
+
+    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+        new_index.add(np.array([vec], dtype=np.float32))
+        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+
+    save_database(new_index, new_mapping, index_path, mapping_path)
+
+    return {
+        "success": True,
+        "message": f"Removed {len(ids_to_remove)} face vector(s) for userid {userid}",
+        "userid": userid,
+        "vectors_removed": len(ids_to_remove),
+        "vectors_remaining": new_index.ntotal
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
