@@ -1042,14 +1042,14 @@ def remove_user_vector(
         for vid, data in current_mapping.items()
         if (isinstance(data, dict) and data.get("userid") == userid)
     }
-    if ids_to_remove >= user_vector_ids:
-        return {
-            "success": False,
-            "message": (
-                f"Cannot remove all {len(user_vector_ids)} vectors for userid {userid} "
-                "via this endpoint. Use /remove-user instead."
-            )
-        }
+    # if ids_to_remove >= user_vector_ids:
+    #     return {
+    #         "success": False,
+    #         "message": (
+    #             f"Cannot remove all {len(user_vector_ids)} vectors for userid {userid} "
+    #             "via this endpoint. Use /remove-user instead."
+    #         )
+    #     }
 
     # Collect IDs to keep
     ids_to_keep = [
