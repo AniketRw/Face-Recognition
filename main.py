@@ -978,6 +978,147 @@ def list_users(clientid: str):
         "total_vectors": len(current_mapping),
         "users": users
     }
+@app.post("/remove-user-vector")
+def remove_user_vector(
+    clientid: str = Form(...),
+    userid: int = Form(...),
+    vector_ids: str = Form(...)   # comma-separated list of vector IDs e.g. "0,2,5"
+):
+    client_id = str(clientid).strip()
+    paths = get_client_paths(client_id)
+
+    index_path = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "message": "No face database found for this client"
+        }
+
+    current_index = faiss.read_index(index_path)
+
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+    # Parse the requested vector IDs to remove
+    try:
+        ids_to_remove = set(
+            int(vid.strip())
+            for vid in vector_ids.split(",")
+            if vid.strip().isdigit()
+        )
+    except Exception:
+        return {
+            "success": False,
+            "message": "Invalid vector_ids format. Expected comma-separated integers."
+        }
+
+    # Validate: ensure each requested vector_id belongs to the given userid
+    invalid_ids = []
+    for vid in ids_to_remove:
+        user_data = current_mapping.get(str(vid))
+        if user_data is None:
+            invalid_ids.append({"vector_id": vid, "reason": "Vector ID not found"})
+            continue
+        stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
+        if stored_userid != userid:
+            invalid_ids.append({
+                "vector_id": vid,
+                "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
+            })
+
+    if invalid_ids:
+        return {
+            "success": False,
+            "message": "Some vector IDs are invalid or belong to a different user.",
+            "invalid_ids": invalid_ids
+        }
+
+    # Safety check: prevent removing ALL vectors for this user 
+    # (use /remove-user for that)
+    user_vector_ids = {
+        int(vid)
+        for vid, data in current_mapping.items()
+        if (isinstance(data, dict) and data.get("userid") == userid)
+    }
+    if ids_to_remove >= user_vector_ids:
+        return {
+            "success": False,
+            "message": (
+                f"Cannot remove all {len(user_vector_ids)} vectors for userid {userid} "
+                "via this endpoint. Use /remove-user instead."
+            )
+        }
+
+    # Collect IDs to keep
+    ids_to_keep = [
+        int(vid)
+        for vid in current_mapping.keys()
+        if int(vid) not in ids_to_remove
+    ]
+
+    # Reconstruct kept vectors
+    kept_vectors = []
+    for old_id in ids_to_keep:
+        vec = current_index.reconstruct(old_id)
+        kept_vectors.append(vec)
+
+    # Rebuild index and mapping with remapped IDs
+    new_index = faiss.IndexFlatL2(DIMENSION)
+    new_mapping = {}
+
+    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+        new_index.add(np.array([vec], dtype=np.float32))
+        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+
+    save_database(new_index, new_mapping, index_path, mapping_path)
+
+    return {
+        "success": True,
+        "message": f"Removed {len(ids_to_remove)} vector(s) for userid {userid}.",
+        "userid": userid,
+        "vectors_removed": len(ids_to_remove),
+        "vectors_remaining": new_index.ntotal,
+        "removed_vector_ids": sorted(ids_to_remove)
+    }
+
+@app.get("/list-user-vectors/{clientid}/{userid}")
+def list_user_vectors(clientid: str, userid: int):
+    client_id = str(clientid).strip()
+    paths = get_client_paths(client_id)
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "message": "No face database found for this client"
+        }
+
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+    user_vectors = [
+        {"vector_id": int(vid), "username": data.get("username")}
+        for vid, data in current_mapping.items()
+        if isinstance(data, dict) and data.get("userid") == userid
+    ]
+
+    if not user_vectors:
+        return {
+            "success": False,
+            "message": f"No vectors found for userid {userid}"
+        }
+
+    return {
+        "success": True,
+        "userid": userid,
+        "total_vectors": len(user_vectors),
+        "vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
+    }
+
+
+
 
 
 if __name__ == "__main__":
