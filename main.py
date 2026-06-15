@@ -656,11 +656,14 @@ from typing import Optional, List
 
 
 @app.post("/authenticate")
+
 def authenticate(
     clientid: str = Form(...),
     photo: Optional[UploadFile] = File(None),
     photos: List[UploadFile] = File(...)
 ):
+    print("\n========== AUTH START ==========")
+    print("RAW CLIENT ID:", repr(clientid))
     #client_id = str(clientid)
     client_id = str(clientid).strip()
     paths = get_client_paths(client_id)
@@ -928,6 +931,54 @@ def debug_all_folders():
         }
 
     return result
+
+@app.get("/list-users/{clientid}")
+def list_users(clientid: str):
+    client_id = str(clientid).strip()
+    paths = get_client_paths(client_id)
+
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "clientid": client_id,
+            "message": "No face database found for this client"
+        }
+
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+    # Collect unique users by userid
+    seen_userids = {}
+    for vector_id_str, user_data in current_mapping.items():
+        if isinstance(user_data, dict):
+            userid = user_data.get("userid")
+            username = user_data.get("username")
+        else:
+            # Old format: {"0": "Aniket"}
+            userid = None
+            username = user_data
+
+        if userid not in seen_userids:
+            seen_userids[userid] = {
+                "userid": userid,
+                "username": username,
+                "vector_count": 1
+            }
+        else:
+            seen_userids[userid]["vector_count"] += 1
+
+    users = list(seen_userids.values())
+
+    return {
+        "success": True,
+        "clientid": client_id,
+        "total_users": len(users),
+        "total_vectors": len(current_mapping),
+        "users": users
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
