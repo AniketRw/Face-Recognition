@@ -665,7 +665,7 @@ def upload_entity(
         )
         return {
             "success": False,
-            "message": f"This face is already registered under a different user ({existing_name}). Registration blocked.",
+            "message": f"This face is already registered under a different user. Registration blocked.",
             "duplicate_username": existing_name,
             "duplicate_userid": duplicate_found.get("userid") if isinstance(duplicate_found, dict) else None,
         }
