@@ -628,6 +628,47 @@ def upload_entity(
             "userid": userid,
             "username": username,
         }
+    
+    duplicate_found = None
+    for face_vector in face_vectors:
+        if current_index.ntotal == 0:
+            break
+
+        distances, indices = current_index.search(
+            face_vector.astype(np.float32), 1
+        )
+        nearest_distance = float(distances[0][0])
+        nearest_id = int(indices[0][0])
+
+        if nearest_distance > MATCH_DISTANCE_THRESHOLD:
+            continue
+
+        existing_user = current_mapping.get(str(nearest_id))
+        if not existing_user:
+            continue
+
+        existing_userid = (
+            existing_user.get("userid")
+            if isinstance(existing_user, dict)
+            else None
+        )
+
+        if existing_userid != userid:
+            duplicate_found = existing_user
+            break
+
+    if duplicate_found:
+        existing_name = (
+            duplicate_found.get("username")
+            if isinstance(duplicate_found, dict)
+            else duplicate_found
+        )
+        return {
+            "success": False,
+            "message": f"This face is already registered under a different user ({existing_name}). Registration blocked.",
+            "duplicate_username": existing_name,
+            "duplicate_userid": duplicate_found.get("userid") if isinstance(duplicate_found, dict) else None,
+        }
 
     for face_vector in face_vectors:
         current_index.add(face_vector.astype(np.float32))
