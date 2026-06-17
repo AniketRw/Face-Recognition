@@ -17,6 +17,7 @@ import pyodbc
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
+import uuid
 
 DATA_DIR = "/app/data"
 
@@ -564,6 +565,7 @@ def upload_entity(
     username: str = Form(...),
     photos: list[UploadFile] = File(...)
 ):
+    registered_images = []
     import time
     start_time = time.time()
     
@@ -602,7 +604,11 @@ def upload_entity(
             image = read_upload_image(photo)
             face_vector = get_face_vector(image, return_box=False)
             print(f"  Photo {photo_index} processed in {time.time() - step_start:.3f}s")
-            face_vectors.append(face_vector)
+            #face_vectors.append(face_vector)
+            face_vectors.append({
+                "vector": face_vector,
+                "filename": photo.filename
+            })
         except Exception as e:
             skipped_photos.append({
                 "photo_number": photo_index,
@@ -630,12 +636,19 @@ def upload_entity(
         }
     
     duplicate_found = None
-    for face_vector in face_vectors:
+    # for face_vector in face_vectors:
+    #     if current_index.ntotal == 0:
+    #         break
+
+    #     distances, indices = current_index.search(
+    #         face_vector.astype(np.float32), 1
+    #     )
+    for item in face_vectors:
         if current_index.ntotal == 0:
             break
-
         distances, indices = current_index.search(
-            face_vector.astype(np.float32), 1
+            item["vector"].astype(np.float32),
+            1
         )
         nearest_distance = float(distances[0][0])
         nearest_id = int(indices[0][0])
@@ -670,14 +683,42 @@ def upload_entity(
             "duplicate_userid": duplicate_found.get("userid") if isinstance(duplicate_found, dict) else None,
         }
 
-    for face_vector in face_vectors:
-        current_index.add(face_vector.astype(np.float32))
+    # for face_vector in face_vectors:
+    #     current_index.add(face_vector.astype(np.float32))
+    #     vector_id = current_index.ntotal - 1
+    #     image_id = str(uuid.uuid4())
+
+    #     current_mapping[str(vector_id)] = {
+    #         "userid": userid,
+    #         "username": username,
+    #         "image_id": image_id,
+    #         "filename": photo.filename
+    #     }
+    for item in face_vectors:
+
+        current_index.add(
+            item["vector"].astype(np.float32)
+        )
+
         vector_id = current_index.ntotal - 1
+
+        image_id = str(uuid.uuid4())
+
         current_mapping[str(vector_id)] = {
             "userid": userid,
             "username": username,
+            "image_id": image_id,
+            "filename": item["filename"]
         }
 
+        registered_images.append({
+            "image_id": image_id,
+            "filename": item["filename"]
+        })
+
+
+    print("CURRENT MAPPING:")
+    print(json.dumps(current_mapping, indent=2))
     save_database(current_index, current_mapping, index_path, mapping_path)
     
     total_time = time.time() - start_time
@@ -685,14 +726,24 @@ def upload_entity(
     print("SAVED INDEX:", index_path)
     print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
     print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
+    # return {
+    #     "success": True,
+    #     "message": f"Face registered successfully for {username}.",
+    #     "userid": userid,
+    #     "username": username,
+    #     "photos_registered": len(face_vectors),
+    # }
+    print("REGISTERED IMAGES:")
+    print(json.dumps(registered_images, indent=2))
     return {
-        "success": True,
-        "message": f"Face registered successfully for {username}.",
-        "userid": userid,
-        "username": username,
-        "photos_registered": len(face_vectors),
+    "success": True,
+    "message": f"Face registered successfully for {username}.",
+    "userid": userid,
+    "username": username,
+    "photos_registered": len(face_vectors),
+    "images": registered_images
     }
-
+    
 from typing import Optional, List
 
 
@@ -885,6 +936,8 @@ def remove_user(
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
 
+
+
     # Find all vector IDs that belong to this userid
     ids_to_remove = set()
     for vector_id_str, user_data in current_mapping.items():
@@ -923,6 +976,8 @@ def remove_user(
         new_index.add(np.array([vec], dtype=np.float32))
         new_mapping[str(new_id)] = current_mapping[str(old_id)]
 
+    
+
     save_database(new_index, new_mapping, index_path, mapping_path)
 
     return {
@@ -932,6 +987,113 @@ def remove_user(
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal
     }
+
+@app.post("/remove-image")
+def remove_image(
+    clientid: str = Form(...),
+    userid: int = Form(...),
+    image_id: str = Form(...)
+):
+
+    client_id = str(clientid).strip()
+
+    paths = get_client_paths(client_id)
+
+    index_path = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "message": "No face database found for this client"
+        }
+
+    current_index = faiss.read_index(index_path)
+
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+
+    print("REQUEST IMAGE ID:", image_id)
+
+    print("AVAILABLE IMAGE IDS:")
+
+    for vid, data in current_mapping.items():
+        if isinstance(data, dict):
+            print(
+                vid,
+                data.get("image_id"),
+                data.get("filename")
+            )
+
+
+    ids_to_remove = set()
+
+    for vector_id, data in current_mapping.items():
+
+        if not isinstance(data, dict):
+            continue
+
+        if (
+            data.get("userid") == userid
+            and data.get("image_id") == image_id
+        ):
+            print("MATCH FOUND:")
+            print("VECTOR ID:", vector_id)
+            print("IMAGE ID:", image_id)
+            print("FILENAME:", data.get("filename"))
+            ids_to_remove.add(int(vector_id))
+
+    if not ids_to_remove:
+        return {
+            "success": False,
+            "message": "Image ID not found"
+        }
+
+    ids_to_keep = [
+        int(vid)
+        for vid in current_mapping.keys()
+        if int(vid) not in ids_to_remove
+    ]
+
+    kept_vectors = []
+
+    for old_id in ids_to_keep:
+        vec = current_index.reconstruct(old_id)
+        kept_vectors.append(vec)
+
+    new_index = faiss.IndexFlatL2(DIMENSION)
+    new_mapping = {}
+
+    for new_id, (old_id, vec) in enumerate(
+        zip(ids_to_keep, kept_vectors)
+    ):
+        new_index.add(
+            np.array([vec], dtype=np.float32)
+        )
+
+        new_mapping[str(new_id)] = (
+            current_mapping[str(old_id)]
+        )
+    
+    print("NEW MAPPING:")
+    print(json.dumps(new_mapping, indent=2))
+
+    save_database(
+        new_index,
+        new_mapping,
+        index_path,
+        mapping_path
+    )
+
+    return {
+        "success": True,
+        "userid": userid,
+        "image_id": image_id,
+        "vectors_removed": len(ids_to_remove),
+        "vectors_remaining": new_index.ntotal
+    }
+    
 @app.get("/debug-paths/{clientid}")
 def debug_paths(clientid: str):
     paths = get_client_paths(clientid)
@@ -1140,7 +1302,13 @@ def list_user_vectors(clientid: str, userid: int):
         current_mapping = json.load(f)
 
     user_vectors = [
-        {"vector_id": int(vid), "username": data.get("username")}
+        #{"vector_id": int(vid), "username": data.get("username")}
+        {
+            "vector_id": int(vid),
+            "username": data.get("username"),
+            "image_id": data.get("image_id"),
+            "filename": data.get("filename")
+        }
         for vid, data in current_mapping.items()
         if isinstance(data, dict) and data.get("userid") == userid
     ]
