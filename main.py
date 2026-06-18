@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 import socket
 import faiss
 import numpy as np
+from typing import Optional, List, Union
 import os
 from fastapi.middleware.cors import CORSMiddleware
 import json
@@ -989,16 +990,13 @@ def remove_user(
     }
 
 @app.post("/remove-image")
-def remove_image(
+async def remove_image(
     clientid: str = Form(...),
     userid: int = Form(...),
-    image_id: str = Form(...)
+    image_id: List[UploadFile] = File(...)  # Multiple files accept
 ):
-
     client_id = str(clientid).strip()
-
     paths = get_client_paths(client_id)
-
     index_path = paths["faiss"]
     mapping_path = paths["mapping"]
 
@@ -1013,41 +1011,35 @@ def remove_image(
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
 
+    # সব files মधून UUID extract करा
+    image_ids = []
+    for file in image_id:
+        raw_name = file.filename
+        uuid_str = os.path.splitext(raw_name)[0]
+        image_ids.append(uuid_str.strip())
 
-    print("REQUEST IMAGE ID:", image_id)
-
+    print("REQUEST IMAGE IDs:", image_ids)
     print("AVAILABLE IMAGE IDS:")
-
     for vid, data in current_mapping.items():
         if isinstance(data, dict):
-            print(
-                vid,
-                data.get("image_id"),
-                data.get("filename")
-            )
+            print(vid, data.get("image_id"), data.get("filename"))
 
-
+    # सगळ्या image_ids साठी vectors find करा
     ids_to_remove = set()
-
     for vector_id, data in current_mapping.items():
-
         if not isinstance(data, dict):
             continue
-
         if (
             data.get("userid") == userid
-            and data.get("image_id") == image_id
+            and data.get("image_id") in image_ids
         ):
-            print("MATCH FOUND:")
-            print("VECTOR ID:", vector_id)
-            print("IMAGE ID:", image_id)
-            print("FILENAME:", data.get("filename"))
+            print("MATCH FOUND:", vector_id, data.get("image_id"))
             ids_to_remove.add(int(vector_id))
 
     if not ids_to_remove:
         return {
             "success": False,
-            "message": "Image ID not found"
+            "message": "No matching Image IDs found"
         }
 
     ids_to_keep = [
@@ -1057,7 +1049,6 @@ def remove_image(
     ]
 
     kept_vectors = []
-
     for old_id in ids_to_keep:
         vec = current_index.reconstruct(old_id)
         kept_vectors.append(vec)
@@ -1065,35 +1056,23 @@ def remove_image(
     new_index = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(
-        zip(ids_to_keep, kept_vectors)
-    ):
-        new_index.add(
-            np.array([vec], dtype=np.float32)
-        )
+    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+        new_index.add(np.array([vec], dtype=np.float32))
+        new_mapping[str(new_id)] = current_mapping[str(old_id)]
 
-        new_mapping[str(new_id)] = (
-            current_mapping[str(old_id)]
-        )
-    
     print("NEW MAPPING:")
     print(json.dumps(new_mapping, indent=2))
 
-    save_database(
-        new_index,
-        new_mapping,
-        index_path,
-        mapping_path
-    )
+    save_database(new_index, new_mapping, index_path, mapping_path)
 
     return {
         "success": True,
         "userid": userid,
-        "image_id": image_id,
+        "image_ids_removed": image_ids,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal
     }
-    
+
 @app.get("/debug-paths/{clientid}")
 def debug_paths(clientid: str):
     paths = get_client_paths(clientid)
