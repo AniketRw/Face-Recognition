@@ -73,7 +73,7 @@ except Exception as e:
     print(f"Warm-up failed (non-critical): {e}")
 # ------------------------------
 
-MATCH_DISTANCE_THRESHOLD = 0.50
+MATCH_DISTANCE_THRESHOLD = 0.65
 MATCH_MARGIN = 0.06
 MIN_USER_MATCHES = 2
 MIN_REGISTRATION_PHOTOS = 3
@@ -350,7 +350,7 @@ def is_live_face(image: np.ndarray, face_box: dict) -> tuple[bool, str]:
     # --- Check 1: Laplacian Variance (blur detection) ---
     # Real faces have higher texture variance; screens/prints are often smoother
     lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    if lap_var < 80:  # Tune this threshold
+    if lap_var < 50:  # Tune this threshold
         return False, f"Image too blurry or flat (score: {lap_var:.1f})"
     
     # --- Check 2: Moire Pattern Detection (screen artifact) ---
@@ -377,7 +377,7 @@ def is_live_face(image: np.ndarray, face_box: dict) -> tuple[bool, str]:
     b, g, r = cv2.split(face_crop)
     channel_stds = [np.std(c) for c in [b, g, r]]
     channel_diff = max(channel_stds) - min(channel_stds)
-    if channel_diff < 8:  # Real skin has uneven channel distribution
+    if channel_diff < 5:  # Real skin has uneven channel distribution
         return False, f"Uniform color channels (diff: {channel_diff:.1f})"
     
     return True, "Live face"
@@ -786,7 +786,7 @@ def check_motion_across_frames(face_boxes: list) -> bool:
     avg_movement = sum(movements) / len(movements)
     print(f"MOTION CHECK: avg_movement={avg_movement:.4f}")
 
-    return avg_movement >= 0.005
+    return avg_movement >= 0.003
 def verify_blink(raw_faces: list) -> tuple[bool, str]:
     ear_values = []
     for face in raw_faces:
@@ -874,7 +874,7 @@ def verify_challenge(raw_faces: list, challenge: str) -> tuple[bool, str]:
     print(f"SILENT MOVEMENT: {turn_reason}")
 
     # Pass if EITHER blink OR movement detected
-    if blink_ok or turn_ok:
+    if blink_ok and turn_ok:
         return True, "Natural liveness detected"
 
     return False, "No natural movement detected"
@@ -892,9 +892,10 @@ def get_auth_challenge():
     print(f"SILENT LIVENESS TOKEN ISSUED: {token}")
 
     return {
-        "success": True,
-        "token":   token
-    }
+    "success": True,
+    "token": token,
+    "message": "Look at camera"
+}
 
 
 @app.post("/authenticate")
