@@ -673,177 +673,119 @@
         
         async function checkFaceLogin() {
 
-    console.log(
-        "CHECK FACE RUNNING"
-    );
+    console.log("CHECK FACE RUNNING");
 
-    /* TEMP FIX */
-if (
-    dbConfig &&
-    dbConfig.db_server
-) {
+    if (
+        isChecking ||
+        isPopupOpen ||
+        !video.videoWidth ||
+        !video.videoHeight
+    ) {
+        return;
+    }
 
-    console.log(
-        "DB Config Found"
-    );
+    isChecking = true;
+
+    statusText.innerHTML = "Scanning Face<span class='dots'></span>";
+    cameraShell.dataset.state = "checking";
+    cameraShell.style.boxShadow = "0 0 30px #22d3ee";
+
+    try {
+
+        // STEP 1: Get challenge from backend
+        const challengeRes = await fetch("/auth-challenge");
+        const challengeData = await challengeRes.json();
+        const token    = challengeData.token;
+        const message  = challengeData.message;
+
+        // STEP 2: Show instruction to user
+        statusText.innerHTML = `<span style="color:#facc15;font-size:18px;">👁 ${message}</span>`;
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // STEP 3: Capture 6 frames with gaps
+        const frames = [];
+        for (let i = 0; i < 3; i++) {
+            const frame = await captureFrame(`login_${i}.jpg`);
+            frames.push(frame);
+            await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        statusText.innerHTML = "Verifying<span class='dots'></span>";
+
+        // STEP 4: Send token + frames to backend
+        const formData = new FormData();
+        formData.append("clientid", "19557");
+        formData.append("token", token);        // NEW - required
+
+        frames.forEach(function(frame) {
+            formData.append("photos", frame.blob, frame.filename);
+        });
+
+        const response = await fetch("/authenticate", {
+            method: "POST",
+            body: formData
+        });
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            const rawError = await response.text();
+            console.error("Backend Error:", rawError);
+            throw new Error(rawError);
+        }
+
+        console.log("AUTH RESPONSE", data);
+
+        updateFaceBoxFromBackend(data.face_box);
+
+        if (data.success === true && data.matched === true) {
+
+            clearInterval(scanTimer);
+
+            const stream = video.srcObject;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+
+            statusText.innerText = data.message;
+            cameraShell.dataset.state = "matched";
+            cameraShell.style.boxShadow = "0 0 50px #00ff88";
+
+            localStorage.setItem("loggedInUser", data.username);
+            localStorage.setItem("loggedInUserId", data.userid);
+
+            window.location.replace("welcome.html");
+            return;
+        }
+
+        statusText.innerText = data.message;
+
+        if (data.show_password_login) {
+            showFancyLoginPopup();
+            return;
+        } else {
+            document.getElementById("passwordLogin").style.display = "none";
+        }
+
+        cameraShell.dataset.state = data.message.includes("Face Not Detected") ? "error" : "checking";
+        cameraShell.style.boxShadow = (data.message || "").includes("Face Not Detected")
+            ? "0 0 25px #ef4444"
+            : "0 0 30px #22d3ee";
+
+        showPopupIfNeeded(data.message, "warning");
+
+    } catch (error) {
+        statusText.innerText = "Server error";
+        cameraShell.dataset.state = "error";
+        showPopupIfNeeded("Server Error", "error");
+        console.log(error);
+    } finally {
+        if (cameraShell.dataset.state !== "matched") {
+            isChecking = false;
+        }
+    }
 }
-            if (
-                isChecking ||
-                isPopupOpen ||
-                !video.videoWidth ||
-                !video.videoHeight
-            ) {
-                return;
-            }
-
-            isChecking = true;
-
-statusText.innerHTML =
-    "Scanning Face<span class='dots'></span>";
-
-cameraShell.dataset.state =
-    "checking";
-
-/* BLUE GLOW WHILE SCANNING */
-cameraShell.style.boxShadow =
-    "0 0 30px #22d3ee";
-
-            try {
-                const firstFrame = await captureFrame("login_0.jpg");
-
-                await new Promise(function(resolve) {
-                    setTimeout(resolve, 150);
-                });
-
-                const secondFrame = await captureFrame("login_1.jpg");
-
-                const formData = new FormData();
-                formData.append(
-                    "clientid",
-                    "19557"
-                );
-                formData.append("photos", firstFrame.blob, firstFrame.filename);
-                formData.append("photos", secondFrame.blob, secondFrame.filename);
-
-                formData.append(
-                    "db_server",
-                    dbConfig.db_server
-                );
-
-                formData.append(
-                    "db_name",
-                    dbConfig.db_name
-                );
-
-                formData.append(
-                    "db_user",
-                    dbConfig.db_user
-                );
-
-                formData.append(
-                    "db_pass",
-                    dbConfig.db_pass
-                );
-
-                formData.append(
-                    "db_driver",
-                    dbConfig.db_driver
-                );
-
-                const response = await fetch(
-                    "/authenticate",
-                    {
-                        method: "POST",
-                        body: formData
-                    }
-                );
-
-                const data = await response.json();
-                console.log(
-    "AUTH RESPONSE",
-    data
-);              
-                updateFaceBoxFromBackend(data.face_box);
-
-                if (data.success === true && data.matched === true) {
-
-                    clearInterval(scanTimer);
-
-                    const stream = video.srcObject;
-
-                    if (stream) {
-                        stream
-                            .getTracks()
-                            .forEach(track => track.stop());
-                    }
-
-                    statusText.innerText =
-                        data.message;
-
-                    cameraShell.dataset.state =
-                        "matched";
-
-                    cameraShell.style.boxShadow =
-                        "0 0 50px #00ff88";
-
-                    localStorage.setItem(
-                        "loggedInUser",
-                        data.username
-                    );
-
-                    localStorage.setItem(
-                        "loggedInUserId",
-                        data.userid
-                    );
-
-                    window.location.replace(
-                        "welcome.html"
-                    );
-
-                    return;
-                }
-                statusText.innerText =data.message;
-                if (data.show_password_login) {
-
-                    showFancyLoginPopup();
-
-                    return;
-                }
-
-                else {
-
-                    document.getElementById(
-                        "passwordLogin"
-                    ).style.display = "none";
-                }
-                cameraShell.dataset.state =data.message.includes("Face Not Detected")? "error": "checking";
-                cameraShell.style.boxShadow =
-                    (data.message || "")
-                        .includes(
-                            "Face Not Detected"
-                        )
-                ? "0 0 25px #ef4444"
-                : "0 0 30px #22d3ee";
-                showPopupIfNeeded(data.message,"warning");
-            }
-            catch(error) {
-                statusText.innerText = "Server error";
-                cameraShell.dataset.state = "error";
-                showPopupIfNeeded("Server Error", "error");
-                console.log(error);
-            }
-            finally {
-                if(
-                    cameraShell.dataset.state !==
-                        "matched"
-
-                ){
-
-                    isChecking = false;
-                }
-            }
-        }    
-
         function showPopupIfNeeded(message, type) {
             const now = Date.now();
 
