@@ -19,6 +19,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 import uuid
+import cv2
+import numpy as np
+import secrets
+import time
 
 DATA_DIR = "/app/data"
 
@@ -44,14 +48,14 @@ DIMENSION = 512
 
 print("STEP 20")
 face_app = FaceAnalysis(
-    name='buffalo_s',
-    allowed_modules=['detection', 'recognition'],
+    name='buffalo_l',
+    allowed_modules=['detection', 'recognition', 'landmark_2d_106'],
     providers=["CPUExecutionProvider"]
 )
 
 face_app.prepare(
     ctx_id=-1,
-    det_size=(320, 320)
+    det_size=(160, 160)
 )
 print("STEP 3")
 
@@ -69,7 +73,7 @@ except Exception as e:
     print(f"Warm-up failed (non-critical): {e}")
 # ------------------------------
 
-MATCH_DISTANCE_THRESHOLD = 0.45
+MATCH_DISTANCE_THRESHOLD = 0.50
 MATCH_MARGIN = 0.06
 MIN_USER_MATCHES = 2
 MIN_REGISTRATION_PHOTOS = 3
@@ -163,6 +167,8 @@ MAX_FACE_ATTEMPTS = int(
     )
 )
 failed_attempts = {}
+challenge_store = {}                    
+CHALLENGE_EXPIRY_SECONDS = 30
 
 
 
@@ -255,7 +261,7 @@ def read_upload_image(photo: UploadFile):
 
     # Reduce image size for CPU optimization only if needed
     height, width = image.shape[:2]
-    max_width = 480
+    max_width = 320
 
     if width > max_width:
         scale = max_width / width
@@ -267,74 +273,40 @@ def read_upload_image(photo: UploadFile):
 
 
 
-def get_face_vector(
-    image,
-    return_box=False
-):
+def get_face_vector(image, return_box=False, return_raw=False):
 
     faces = face_app.get(image)
 
     if not faces:
-        raise ValueError(
-            "No face detected"
-        )
+        raise ValueError("No face detected")
 
     face = max(
         faces,
-        key=lambda f:
-        (
-            f.bbox[2] - f.bbox[0]
-        ) * (
-            f.bbox[3] - f.bbox[1]
-        )
+        key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
     )
 
-    embedding = np.array(
-        face.embedding,
-        dtype=np.float32
-    ).reshape(1, -1)
-
-    norm = np.linalg.norm(
-        embedding
-    )
+    embedding = np.array(face.embedding, dtype=np.float32).reshape(1, -1)
+    norm = np.linalg.norm(embedding)
 
     if norm == 0:
-        raise ValueError(
-            "Invalid face embedding"
-        )
+        raise ValueError("Invalid face embedding")
 
-    normalized_vector = (
-        embedding / norm
-    )
+    normalized_vector = embedding / norm
 
-    x1, y1, x2, y2 = (
-        face.bbox.astype(int)
-    )
+    x1, y1, x2, y2 = face.bbox.astype(int)
 
     face_box = {
-        "x":
-        x1 / image.shape[1],
-
-        "y":
-        y1 / image.shape[0],
-
-        "width":
-        (x2 - x1)
-        / image.shape[1],
-
-        "height":
-        (y2 - y1)
-        / image.shape[0]
+        "x":      x1 / image.shape[1],
+        "y":      y1 / image.shape[0],
+        "width":  (x2 - x1) / image.shape[1],
+        "height": (y2 - y1) / image.shape[0]
     }
 
+    if return_box and return_raw:
+        return normalized_vector, face_box, face    # returns raw face for landmarks
     if return_box:
-        return (
-            normalized_vector,
-            face_box
-        )
-
+        return normalized_vector, face_box
     return normalized_vector
-
 
 # Removed global index and user_mapping for multi-tenant safety
 # Each request now loads its own client-specific database
@@ -355,6 +327,60 @@ def get_registered_user(vector_id: int, user_mapping: dict):
 def user_key(user):
     return f"{user.get('userid')}::{user.get('username')}"
 
+
+def is_live_face(image: np.ndarray, face_box: dict) -> tuple[bool, str]:
+    """
+    Detects if the face is from a live person or a screen/print.
+    Returns (is_live: bool, reason: str)
+    """
+    h, w = image.shape[:2]
+    
+    # Crop the face region
+    x = int(face_box["x"] * w)
+    y = int(face_box["y"] * h)
+    fw = int(face_box["width"] * w)
+    fh = int(face_box["height"] * h)
+    face_crop = image[y:y+fh, x:x+fw]
+    
+    if face_crop.size == 0:
+        return False, "Invalid face region"
+    
+    gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    
+    # --- Check 1: Laplacian Variance (blur detection) ---
+    # Real faces have higher texture variance; screens/prints are often smoother
+    lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    if lap_var < 80:  # Tune this threshold
+        return False, f"Image too blurry or flat (score: {lap_var:.1f})"
+    
+    # --- Check 2: Moire Pattern Detection (screen artifact) ---
+    # Screens have pixel grid patterns detectable via FFT
+    f = np.fft.fft2(gray)
+    fshift = np.fft.fftshift(f)
+    magnitude = 20 * np.log(np.abs(fshift) + 1)
+    
+    rows, cols = gray.shape
+    center_r, center_c = rows // 2, cols // 2
+    mask = np.zeros((rows, cols), np.uint8)
+    cv2.circle(mask, (center_c, center_r), 30, 1, -1)  # block DC center
+    
+    outer_energy = magnitude[mask == 0].mean()
+    inner_energy = magnitude[mask == 1].mean()
+    
+    # Screens show abnormally high periodic energy in outer frequencies
+    freq_ratio = outer_energy / (inner_energy + 1e-5)
+    if freq_ratio > 0.85:  # Tune this threshold
+        return False, f"Screen pattern detected (freq ratio: {freq_ratio:.2f})"
+    
+    # --- Check 3: Color Channel Uniformity ---
+    # Phone screens have very uniform RGB channels; real skin varies
+    b, g, r = cv2.split(face_crop)
+    channel_stds = [np.std(c) for c in [b, g, r]]
+    channel_diff = max(channel_stds) - min(channel_stds)
+    if channel_diff < 8:  # Real skin has uneven channel distribution
+        return False, f"Uniform color channels (diff: {channel_diff:.1f})"
+    
+    return True, "Live face"
 
 def find_best_user_match(face_vector, index, user_mapping):
     search_count = min(index.ntotal, 20)
@@ -747,29 +773,164 @@ def upload_entity(
     
 from typing import Optional, List
 
+def check_motion_across_frames(face_boxes: list) -> bool:
+    if len(face_boxes) < 2:
+        return True  # single frame — can't check motion, allow through
+
+    movements = []
+    for i in range(1, len(face_boxes)):
+        dx = abs(face_boxes[i]["x"] - face_boxes[i-1]["x"])
+        dy = abs(face_boxes[i]["y"] - face_boxes[i-1]["y"])
+        movements.append(dx + dy)
+
+    avg_movement = sum(movements) / len(movements)
+    print(f"MOTION CHECK: avg_movement={avg_movement:.4f}")
+
+    return avg_movement >= 0.005
+def verify_blink(raw_faces: list) -> tuple[bool, str]:
+    ear_values = []
+    for face in raw_faces:
+        lm = getattr(face, 'landmark_2d_106', None)
+        if lm is None:
+            continue
+        left_v  = abs(lm[35][1] - lm[40][1])
+        left_h  = abs(lm[33][0] - lm[39][0])
+        right_v = abs(lm[89][1] - lm[94][1])
+        right_h = abs(lm[87][0] - lm[93][0])
+        left_ear  = left_v  / (left_h  + 1e-5)
+        right_ear = right_v / (right_h + 1e-5)
+        ear_values.append((left_ear + right_ear) / 2.0)
+
+    if len(ear_values) < 3:
+        return False, "Could not read eye landmarks"
+
+    variation = max(ear_values) - min(ear_values)
+    print(f"BLINK EAR variation: {variation:.4f}")
+    return (variation >= 0.08), f"Blink variation={variation:.3f}"
+
+
+def verify_head_turn(raw_faces: list, direction: str) -> tuple[bool, str]:
+    nose_offsets = []
+    for face in raw_faces:
+        lm = getattr(face, 'landmark_2d_106', None)
+        if lm is None:
+            continue
+        nose_x       = lm[86][0]
+        eye_center_x = (lm[36][0] + lm[90][0]) / 2
+        nose_offsets.append(nose_x - eye_center_x)
+
+    if len(nose_offsets) < 3:
+        return False, "Could not read nose/eye landmarks"
+
+    initial_offset = nose_offsets[0]
+    max_change     = max(nose_offsets) - min(nose_offsets)
+    TURN_THRESHOLD = 8.0
+
+    if direction == "left":
+        moved = min(nose_offsets) < initial_offset - TURN_THRESHOLD
+    else:
+        moved = max(nose_offsets) > initial_offset + TURN_THRESHOLD
+
+    print(f"HEAD TURN {direction}: max_change={max_change:.2f}")
+    return moved, f"Head turn {direction}: change={max_change:.2f}"
+
+def verify_any_movement(raw_faces: list) -> tuple[bool, str]:
+    """
+    Detects ANY natural head movement across frames.
+    No specific direction required — just checks that
+    the face wasn't completely static (like a photo/video loop).
+    """
+    nose_x_values = []
+    nose_y_values = []
+
+    for face in raw_faces:
+        lm = getattr(face, 'landmark_2d_106', None)
+        if lm is None:
+            continue
+        nose_x_values.append(lm[86][0])
+        nose_y_values.append(lm[86][1])
+
+    if len(nose_x_values) < 3:
+        return False, "Could not read landmarks"
+
+    x_variation = max(nose_x_values) - min(nose_x_values)
+    y_variation = max(nose_y_values) - min(nose_y_values)
+    total_variation = x_variation + y_variation
+
+    print(f"MOVEMENT variation x={x_variation:.2f} y={y_variation:.2f} total={total_variation:.2f}")
+
+    return (total_variation >= 3.0), f"Movement variation={total_variation:.2f}px"
+
+
+def verify_challenge(raw_faces: list, challenge: str) -> tuple[bool, str]:
+    if not raw_faces or len(raw_faces) < 3:
+        return False, "Not enough frames"
+
+    # Silent mode — just check natural blink OR natural head movement
+    blink_ok, blink_reason     = verify_blink(raw_faces)
+    turn_ok,  turn_reason      = verify_any_movement(raw_faces)
+
+    print(f"SILENT BLINK: {blink_reason}")
+    print(f"SILENT MOVEMENT: {turn_reason}")
+
+    # Pass if EITHER blink OR movement detected
+    if blink_ok or turn_ok:
+        return True, "Natural liveness detected"
+
+    return False, "No natural movement detected"
+
+@app.get("/auth-challenge")
+def get_auth_challenge():
+    # No random challenge — just issue a token for silent liveness
+    token = secrets.token_hex(16)
+
+    challenge_store[token] = {
+        "challenge":  "silent",
+        "expires_at": time.time() + CHALLENGE_EXPIRY_SECONDS
+    }
+
+    print(f"SILENT LIVENESS TOKEN ISSUED: {token}")
+
+    return {
+        "success": True,
+        "token":   token
+    }
+
 
 @app.post("/authenticate")
-
 def authenticate(
     clientid: str = Form(...),
-    photo: Optional[UploadFile] = File(None),
-    photos: List[UploadFile] = File(...)
+    token:    str = Form(...),              # NEW
+    photo:    Optional[UploadFile] = File(None),
+    photos:   List[UploadFile] = File(...)
 ):
     print("\n========== AUTH START ==========")
-    print("RAW CLIENT ID:", repr(clientid))
-    #client_id = str(clientid)
     client_id = str(clientid).strip()
-    paths = get_client_paths(client_id)
 
-    index_path = paths["faiss"]
+    # Validate challenge token first
+    challenge_data = challenge_store.pop(token, None)   # one-time use
+
+    if not challenge_data:
+        return {
+            "success": False,
+            "matched": False,
+            "message": "Invalid or expired challenge. Please try again."
+        }
+
+    if time.time() > challenge_data["expires_at"]:
+        return {
+            "success": False,
+            "matched": False,
+            "message": "Challenge expired. Please try again."
+        }
+
+    challenge = challenge_data["challenge"]
+    print(f"CHALLENGE TO VERIFY: {challenge}")
+
+    paths        = get_client_paths(client_id)
+    index_path   = paths["faiss"]
     mapping_path = paths["mapping"]
 
-    print("CLIENT:", client_id)
-    print("ACTUAL INDEX PATH:", index_path)
-    print("INDEX EXISTS:", os.path.exists(index_path))
-    #print("TOTAL FACES:", current_index.ntotal)
-
-    # Load local database for this client
     if os.path.exists(index_path):
         current_index = faiss.read_index(index_path)
     else:
@@ -783,103 +944,165 @@ def authenticate(
 
     try:
         if current_index.ntotal == 0:
-            return {
-                "success": False,
-                "matched": False,
-                "message": "No registered faces found"
-            }
+            return {"success": False, "matched": False, "message": "No registered faces found"}
 
         login_photos = photos if photos else ([photo] if photo else [])
         if not login_photos:
-            return {
-                "success": False,
-                "matched": False,
-                "message": "No login photo received"
-            }
+            return {"success": False, "matched": False, "message": "No login photo received"}
 
-        required_frame_matches = min(MIN_LOGIN_FRAME_MATCHES, len(login_photos))
-        
-        frame_matches = []
-        face_detected_count = 0
-        face_box = None
+        # --- Collect all frames first ---
+        face_detected_count    = 0
+        liveness_fail_count    = 0
+        face_box               = None
+        face_boxes_collected   = []
+        raw_faces_collected    = []
+        face_vectors_collected = []
 
         for login_photo in login_photos:
+
+            # STEP 1: Read image
             try:
                 image = read_upload_image(login_photo)
-                face_vector, face_box = get_face_vector(image, return_box=True)
-                face_detected_count += 1
             except Exception as e:
+                print(f"IMAGE READ ERROR: {e}")
                 continue
 
-            match, match_status = find_best_user_match(face_vector, current_index, current_mapping)
+            # STEP 2: Detect face
+            try:
+                face_vector, face_box, raw_face = get_face_vector(
+                    image, return_box=True, return_raw=True
+                )
+                face_detected_count += 1
+                face_boxes_collected.append(face_box)
+                raw_faces_collected.append(raw_face)
+                face_vectors_collected.append(face_vector)
+            except Exception as e:
+                print(f"FACE DETECT ERROR: {e}")
+                continue
 
-            if match_status == "matched":
-                frame_matches.append(match)
-                matched_keys = [m["key"] for m in frame_matches]
+            # STEP 3: Liveness — first frame only (saves time)
+            if face_detected_count == 1:
+                is_live, liveness_reason = is_live_face(image, face_box)
+                if not is_live:
+                    print(f"LIVENESS FAIL: {liveness_reason}")
+                    liveness_fail_count += 1
 
-                if matched_keys.count(match["key"]) >= required_frame_matches:
-                    user = match["user"]
-                    username = user["username"]
-                    failed_attempts["camera_login"] = 0
-
-                    return {
-                        "success": True,
-                        "matched": True,
-                        "message": f"Welcome {username}",
-                        "userid": user.get("userid"),
-                        "username": username,
-                        "face_box": face_box
-                    }
+        # --- All frames collected, now decide ---
 
         if face_detected_count == 0:
             return {
-                "success": False,
-                "matched": False,
+                "success": False, "matched": False,
                 "show_password_login": False,
                 "message": "Face Not Detected"
             }
 
-        print("FACE NOT MATCHED")
+        if liveness_fail_count > 0:
+            return {
+                "success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Liveness check failed. Please use a live camera."
+            }
 
-        failed_attempts["camera_login"] = (
-            failed_attempts.get("camera_login", 0) + 1
+        # STEP 4: Motion check
+        if not check_motion_across_frames(face_boxes_collected):
+            return {
+                "success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Liveness check failed. Please move slightly and try again."
+            }
+
+        # STEP 5: Challenge check (blink + movement)
+        challenge_ok, challenge_reason = verify_challenge(
+            raw_faces_collected, challenge
         )
-        attempts = failed_attempts["camera_login"]
+        print(f"CHALLENGE RESULT: {challenge_reason}")
+
+        if not challenge_ok:
+            return {
+                "success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Liveness check failed. Please face the camera and try again."
+            }
+
+        # STEP 6: Match on best single frame (middle frame)
+        best_vector = face_vectors_collected[len(face_vectors_collected) // 2]
+        match, match_status = find_best_user_match(
+            best_vector, current_index, current_mapping
+        )
+
+        if match_status == "matched":
+            user     = match["user"]
+            username = user["username"]
+            failed_attempts["camera_login"] = 0
+
+            return {
+                "success":  True,
+                "matched":  True,
+                "message":  f"Welcome {username}",
+                "userid":   user.get("userid"),
+                "username": username,
+                "face_box": face_box
+            }
+
+        # No match
+        failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+        attempts  = failed_attempts["camera_login"]
         remaining = MAX_FACE_ATTEMPTS - attempts
 
         if attempts >= MAX_FACE_ATTEMPTS:
             return {
-                "success": False,
-                "matched": False,
+                "success": False, "matched": False,
                 "show_password_login": True,
                 "message": "Face login failed 3 times. Use username and password."
             }
 
         return {
-            "success": False,
-            "matched": False,
+            "success": False, "matched": False,
             "show_password_login": False,
             "message": f"Face not matched. {remaining} attempts left.",
             "face_box": face_box
         }
 
     except Exception as e:
-        print("FACE NOT DETECTED", e)
+        print("AUTH ERROR:", e)
         return {
-            "success": False,
-            "matched": False,
+            "success": False, "matched": False,
             "show_password_login": False,
             "message": "Face Not Detected"
         }
+        if liveness_fail_count == face_detected_count:
+            return {
+                "success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Liveness check failed. Please use a live camera."
+            }
 
+        failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+        attempts  = failed_attempts["camera_login"]
+        remaining = MAX_FACE_ATTEMPTS - attempts
 
+        if attempts >= MAX_FACE_ATTEMPTS:
+            return {
+                "success": False, "matched": False,
+                "show_password_login": True,
+                "message": "Face login failed 3 times. Use username and password."
+            }
 
-print("INDEX PATH:", INDEX_PATH)
-print("INDEX EXISTS:", os.path.exists(INDEX_PATH))
+        return {
+            "success": False, "matched": False,
+            "show_password_login": False,
+            "message": f"Face not matched. {remaining} attempts left.",
+            "face_box": face_box
+        }
 
-
-
-
+    except Exception as e:
+        print("AUTH ERROR:", e)
+        return {
+            "success": False, "matched": False,
+            "show_password_login": False,
+            "message": "Face Not Detected"
+        }
+    
 @app.post("/manual-login")
 def manual_login(
     username: str = Form(...),
