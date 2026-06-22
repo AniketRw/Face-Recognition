@@ -383,7 +383,7 @@ def is_live_face(image: np.ndarray, face_box: dict) -> tuple[bool, str]:
     return True, "Live face"
 
 def find_best_user_match(face_vector, index, user_mapping):
-    search_count = min(index.ntotal, 20)
+    search_count = min(index.ntotal, 10)
     distances, indices = index.search(face_vector.astype(np.float32), search_count)
     user_distances = {}
     user_data = {}
@@ -517,6 +517,17 @@ def get_db_connection():
     )
 
     return pyodbc.connect(connection_string, timeout=30)
+
+@app.get("/db-config")
+def db_config():
+    return {
+        "success": True,
+        "db_server": "",
+        "db_name": "",
+        "db_user": "",
+        "db_pass": "",
+        "db_driver": ""
+    }
 
 @app.get("/get-user/{userid}", include_in_schema=False)
 def get_user(userid: int):
@@ -898,212 +909,363 @@ def get_auth_challenge():
 }
 
 
+# @app.post("/authenticate")
+# def authenticate(
+#     clientid: str = Form(...),
+#     token:    str = Form(...),              # NEW
+#     photo:    Optional[UploadFile] = File(None),
+#     photos:   List[UploadFile] = File(...)
+# ):
+#     print("\n========== AUTH START ==========")
+#     client_id = str(clientid).strip()
+
+#     # Validate challenge token first
+#     challenge_data = challenge_store.pop(token, None)   # one-time use
+
+#     if not challenge_data:
+#         return {
+#             "success": False,
+#             "matched": False,
+#             "message": "Invalid or expired challenge. Please try again."
+#         }
+
+#     if time.time() > challenge_data["expires_at"]:
+#         return {
+#             "success": False,
+#             "matched": False,
+#             "message": "Challenge expired. Please try again."
+#         }
+
+#     challenge = challenge_data["challenge"]
+#     print(f"CHALLENGE TO VERIFY: {challenge}")
+
+#     paths        = get_client_paths(client_id)
+#     index_path   = paths["faiss"]
+#     mapping_path = paths["mapping"]
+
+#     if os.path.exists(index_path):
+#         current_index = faiss.read_index(index_path)
+#     else:
+#         current_index = faiss.IndexFlatL2(DIMENSION)
+
+#     if os.path.exists(mapping_path):
+#         with open(mapping_path, "r") as file:
+#             current_mapping = json.load(file)
+#     else:
+#         current_mapping = {}
+
+#     try:
+#         if current_index.ntotal == 0:
+#             return {"success": False, "matched": False, "message": "No registered faces found"}
+
+#         login_photos = photos if photos else ([photo] if photo else [])
+#         if not login_photos:
+#             return {"success": False, "matched": False, "message": "No login photo received"}
+
+#         # --- Collect all frames first ---
+#         face_detected_count    = 0
+#         liveness_fail_count    = 0
+#         face_box               = None
+#         face_boxes_collected   = []
+#         raw_faces_collected    = []
+#         face_vectors_collected = []
+
+#         for login_photo in login_photos:
+
+#             # STEP 1: Read image
+#             try:
+#                 image = read_upload_image(login_photo)
+#             except Exception as e:
+#                 print(f"IMAGE READ ERROR: {e}")
+#                 continue
+
+#             # STEP 2: Detect face
+#             try:
+#                 face_vector, face_box, raw_face = get_face_vector(
+#                     image, return_box=True, return_raw=True
+#                 )
+#                 face_detected_count += 1
+#                 face_boxes_collected.append(face_box)
+#                 raw_faces_collected.append(raw_face)
+#                 face_vectors_collected.append(face_vector)
+#             except Exception as e:
+#                 print(f"FACE DETECT ERROR: {e}")
+#                 continue
+
+#             # STEP 3: Liveness — first frame only (saves time)
+#             if face_detected_count == 1:
+#                 is_live, liveness_reason = is_live_face(image, face_box)
+#                 if not is_live:
+#                     print(f"LIVENESS FAIL: {liveness_reason}")
+#                     liveness_fail_count += 1
+
+#         # --- All frames collected, now decide ---
+
+#         if face_detected_count == 0:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Face Not Detected"
+#             }
+
+#         if liveness_fail_count > 0:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Liveness check failed. Please use a live camera."
+#             }
+
+#         # STEP 4: Motion check
+#         if not check_motion_across_frames(face_boxes_collected):
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Liveness check failed. Please move slightly and try again."
+#             }
+
+#         # STEP 5: Challenge check (blink + movement)
+#         challenge_ok, challenge_reason = verify_challenge(
+#             raw_faces_collected, challenge
+#         )
+#         print(f"CHALLENGE RESULT: {challenge_reason}")
+
+#         if not challenge_ok:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Liveness check failed. Please face the camera and try again."
+#             }
+
+#         # STEP 6: Match on best single frame (middle frame)
+#         best_vector = face_vectors_collected[len(face_vectors_collected) // 2]
+#         match, match_status = find_best_user_match(
+#             best_vector, current_index, current_mapping
+#         )
+
+#         if match_status == "matched":
+#             user     = match["user"]
+#             username = user["username"]
+#             failed_attempts["camera_login"] = 0
+
+#             return {
+#                 "success":  True,
+#                 "matched":  True,
+#                 "message":  f"Welcome {username}",
+#                 "userid":   user.get("userid"),
+#                 "username": username,
+#                 "face_box": face_box
+#             }
+
+#         # No match
+#         failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#         attempts  = failed_attempts["camera_login"]
+#         remaining = MAX_FACE_ATTEMPTS - attempts
+
+#         if attempts >= MAX_FACE_ATTEMPTS:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."
+#             }
+
+#         return {
+#             "success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": face_box
+#         }
+
+#     except Exception as e:
+#         print("AUTH ERROR:", e)
+#         return {
+#             "success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": "Face Not Detected"
+#         }
+#         if liveness_fail_count == face_detected_count:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Liveness check failed. Please use a live camera."
+#             }
+
+#         failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#         attempts  = failed_attempts["camera_login"]
+#         remaining = MAX_FACE_ATTEMPTS - attempts
+
+#         if attempts >= MAX_FACE_ATTEMPTS:
+#             return {
+#                 "success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."
+#             }
+
+#         return {
+#             "success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": face_box
+#         }
+
+#     except Exception as e:
+#         print("AUTH ERROR:", e)
+#         return {
+#             "success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": "Face Not Detected"
+#         }
+
+# ============================================================
+# FAST AUTHENTICATE — blink detected = instant match
+# ============================================================
 @app.post("/authenticate")
 def authenticate(
     clientid: str = Form(...),
-    token:    str = Form(...),              # NEW
-    photo:    Optional[UploadFile] = File(None),
-    photos:   List[UploadFile] = File(...)
+    photo1: UploadFile = File(...),
+    photo2: UploadFile = File(...),
+    photo3: UploadFile = File(...)
 ):
-    print("\n========== AUTH START ==========")
+    t0 = time.time()
     client_id = str(clientid).strip()
 
-    # Validate challenge token first
-    challenge_data = challenge_store.pop(token, None)   # one-time use
-
-    if not challenge_data:
-        return {
-            "success": False,
-            "matched": False,
-            "message": "Invalid or expired challenge. Please try again."
-        }
-
-    if time.time() > challenge_data["expires_at"]:
-        return {
-            "success": False,
-            "matched": False,
-            "message": "Challenge expired. Please try again."
-        }
-
-    challenge = challenge_data["challenge"]
-    print(f"CHALLENGE TO VERIFY: {challenge}")
-
-    paths        = get_client_paths(client_id)
+    paths = get_client_paths(client_id)
     index_path   = paths["faiss"]
     mapping_path = paths["mapping"]
 
     if os.path.exists(index_path):
         current_index = faiss.read_index(index_path)
     else:
-        current_index = faiss.IndexFlatL2(DIMENSION)
+        return {"success": False, "matched": False, "message": "No face database found"}
 
     if os.path.exists(mapping_path):
-        with open(mapping_path, "r") as file:
-            current_mapping = json.load(file)
+        with open(mapping_path, "r") as f:
+            current_mapping = json.load(f)
     else:
-        current_mapping = {}
+        return {"success": False, "matched": False, "message": "No face database found"}
 
-    try:
-        if current_index.ntotal == 0:
-            return {"success": False, "matched": False, "message": "No registered faces found"}
+    if current_index.ntotal == 0:
+        return {"success": False, "matched": False, "message": "No registered faces found"}
 
-        login_photos = photos if photos else ([photo] if photo else [])
-        if not login_photos:
-            return {"success": False, "matched": False, "message": "No login photo received"}
+    # --- 3 photos process --- (image resize आधीच होतं, fast)
+    raw_faces   = []
+    vectors     = []
+    boxes       = []
 
-        # --- Collect all frames first ---
-        face_detected_count    = 0
-        liveness_fail_count    = 0
-        face_box               = None
-        face_boxes_collected   = []
-        raw_faces_collected    = []
-        face_vectors_collected = []
+    for photo in [photo1, photo2, photo3]:
+        try:
+            image = read_upload_image(photo)
+            vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
+            vectors.append(vec)
+            boxes.append(box)
+            raw_faces.append(raw)
+        except Exception as e:
+            print(f"SKIP: {e}")
+            continue
 
-        for login_photo in login_photos:
+    print(f"FACE DETECT: {time.time() - t0:.3f}s")
 
-            # STEP 1: Read image
-            try:
-                image = read_upload_image(login_photo)
-            except Exception as e:
-                print(f"IMAGE READ ERROR: {e}")
-                continue
-
-            # STEP 2: Detect face
-            try:
-                face_vector, face_box, raw_face = get_face_vector(
-                    image, return_box=True, return_raw=True
-                )
-                face_detected_count += 1
-                face_boxes_collected.append(face_box)
-                raw_faces_collected.append(raw_face)
-                face_vectors_collected.append(face_vector)
-            except Exception as e:
-                print(f"FACE DETECT ERROR: {e}")
-                continue
-
-            # STEP 3: Liveness — first frame only (saves time)
-            if face_detected_count == 1:
-                is_live, liveness_reason = is_live_face(image, face_box)
-                if not is_live:
-                    print(f"LIVENESS FAIL: {liveness_reason}")
-                    liveness_fail_count += 1
-
-        # --- All frames collected, now decide ---
-
-        if face_detected_count == 0:
-            return {
-                "success": False, "matched": False,
+    if not vectors:
+        return {"success": False, "matched": False,
                 "show_password_login": False,
-                "message": "Face Not Detected"
-            }
+                "message": "Face Not Detected"}
 
-        if liveness_fail_count > 0:
-            return {
-                "success": False, "matched": False,
-                "show_password_login": False,
-                "message": "Liveness check failed. Please use a live camera."
-            }
+    # --- Blink check — FAST (no loop, direct index) ---
+    ear_values = []
+    for face in raw_faces:
+        lm = getattr(face, 'landmark_2d_106', None)
+        if lm is None:
+            continue
+        lv = abs(lm[35][1] - lm[40][1])
+        lh = abs(lm[33][0] - lm[39][0])
+        rv = abs(lm[89][1] - lm[94][1])
+        rh = abs(lm[87][0] - lm[93][0])
+        ear_values.append(((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0)
 
-        # STEP 4: Motion check
-        if not check_motion_across_frames(face_boxes_collected):
-            return {
-                "success": False, "matched": False,
-                "show_password_login": False,
-                "message": "Liveness check failed. Please move slightly and try again."
-            }
+    print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
 
-        # STEP 5: Challenge check (blink + movement)
-        challenge_ok, challenge_reason = verify_challenge(
-            raw_faces_collected, challenge
-        )
-        print(f"CHALLENGE RESULT: {challenge_reason}")
+    blink_ok = False
+    if len(ear_values) >= 2:
+        variation = max(ear_values) - min(ear_values)
+        print(f"EAR VARIATION: {variation:.4f}")
+        blink_ok = variation >= 0.06  # 0.08 → 0.06 (slightly easier)
 
-        if not challenge_ok:
-            return {
-                "success": False, "matched": False,
-                "show_password_login": False,
-                "message": "Liveness check failed. Please face the camera and try again."
-            }
+    print(f"BLINK CHECK: {time.time() - t0:.3f}s")
 
-        # STEP 6: Match on best single frame (middle frame)
-        best_vector = face_vectors_collected[len(face_vectors_collected) // 2]
-        match, match_status = find_best_user_match(
-            best_vector, current_index, current_mapping
-        )
-
-        if match_status == "matched":
-            user     = match["user"]
-            username = user["username"]
-            failed_attempts["camera_login"] = 0
-
-            return {
-                "success":  True,
-                "matched":  True,
-                "message":  f"Welcome {username}",
-                "userid":   user.get("userid"),
-                "username": username,
-                "face_box": face_box
-            }
-
-        # No match
+    if not blink_ok:
         failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
         attempts  = failed_attempts["camera_login"]
         remaining = MAX_FACE_ATTEMPTS - attempts
 
-        if attempts >= MAX_FACE_ATTEMPTS:
-            return {
-                "success": False, "matched": False,
-                "show_password_login": True,
-                "message": "Face login failed 3 times. Use username and password."
-            }
+        # if attempts >= MAX_FACE_ATTEMPTS:
+        #     failed_attempts["camera_login"] = 0
+        #     return {"success": False, "matched": False,
+        #             "show_password_login": True,
+        #             "message": "Face login failed 3 times. Use username and password."}
+
+        # return {"success": False, "matched": False,
+        #         "show_password_login": False,
+        #         "message": f"Blink not detected. {remaining} attempts left."}
 
         return {
-            "success": False, "matched": False,
+        "success": False,
+        "matched": False,
+        "show_password_login": False,
+        "message": f"Blink not detected  Just Blink ."
+    }
+
+    # --- Blink OK → ONLY middle frame match (skip others) ---
+    best_vector  = vectors[len(vectors) // 2]
+    best_box     = boxes[len(boxes) // 2]
+
+    match, match_status = find_best_user_match(
+        best_vector, current_index, current_mapping
+    )
+
+    print(f"TOTAL AUTH: {time.time() - t0:.3f}s")
+
+    if match_status == "matched":
+        user = match["user"]
+        failed_attempts["camera_login"] = 0
+        return {
+            "success":  True, "matched": True,
+            "message":  f"Welcome {user['username']}",
+            "userid":   user.get("userid"),
+            "username": user["username"],
+            "face_box": best_box
+        }
+
+    failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+    attempts  = failed_attempts["camera_login"]
+    remaining = MAX_FACE_ATTEMPTS - attempts
+
+    if attempts >= MAX_FACE_ATTEMPTS:
+        failed_attempts["camera_login"] = 0
+        return {"success": False, "matched": False,
+                "show_password_login": True,
+                "message": "Face login failed 3 times. Use username and password."}
+
+    return {"success": False, "matched": False,
             "show_password_login": False,
             "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": face_box
-        }
+            "face_box": best_box}
+    failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+    attempts  = failed_attempts["camera_login"]
+    remaining = MAX_FACE_ATTEMPTS - attempts
+    face_box  = face_boxes_collected[len(face_boxes_collected) // 2] \
+                if face_boxes_collected else None
 
-    except Exception as e:
-        print("AUTH ERROR:", e)
-        return {
-            "success": False, "matched": False,
-            "show_password_login": False,
-            "message": "Face Not Detected"
-        }
-        if liveness_fail_count == face_detected_count:
-            return {
-                "success": False, "matched": False,
-                "show_password_login": False,
-                "message": "Liveness check failed. Please use a live camera."
-            }
-
-        failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
-        attempts  = failed_attempts["camera_login"]
-        remaining = MAX_FACE_ATTEMPTS - attempts
-
-        if attempts >= MAX_FACE_ATTEMPTS:
-            return {
-                "success": False, "matched": False,
+    if attempts >= MAX_FACE_ATTEMPTS:
+        return {"success": False, "matched": False,
                 "show_password_login": True,
-                "message": "Face login failed 3 times. Use username and password."
-            }
+                "message": "Face login failed 3 times. Use username and password."}
 
-        return {
-            "success": False, "matched": False,
+    return {"success": False, "matched": False,
             "show_password_login": False,
             "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": face_box
-        }
+            "face_box": face_box}
 
-    except Exception as e:
-        print("AUTH ERROR:", e)
-        return {
-            "success": False, "matched": False,
-            "show_password_login": False,
-            "message": "Face Not Detected"
-        }
-    
+
+
 @app.post("/manual-login")
 def manual_login(
     username: str = Form(...),
