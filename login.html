@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -672,54 +672,26 @@
         
         
         async function checkFaceLogin() {
-
-    console.log("CHECK FACE RUNNING");
-
-    if (
-        isChecking ||
-        isPopupOpen ||
-        !video.videoWidth ||
-        !video.videoHeight
-    ) {
-        return;
-    }
+    if (isChecking || isPopupOpen || !video.videoWidth || !video.videoHeight) return;
 
     isChecking = true;
-
     statusText.innerHTML = "Scanning Face<span class='dots'></span>";
     cameraShell.dataset.state = "checking";
     cameraShell.style.boxShadow = "0 0 30px #22d3ee";
 
     try {
+        // 3 frames — 200ms gap
+        const frame1 = await captureFrame("photo1.jpg");
+        await new Promise(r => setTimeout(r, 100));
+        const frame2 = await captureFrame("photo2.jpg");
+        await new Promise(r => setTimeout(r, 100));
+        const frame3 = await captureFrame("photo3.jpg");
 
-        // STEP 1: Get challenge from backend
-        const challengeRes = await fetch("/auth-challenge");
-        const challengeData = await challengeRes.json();
-        const token    = challengeData.token;
-        const message  = challengeData.message;
-
-        // STEP 2: Show instruction to user
-        statusText.innerHTML = `<span style="color:#facc15;font-size:18px;">👁 ${message}</span>`;
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        // STEP 3: Capture 6 frames with gaps
-        const frames = [];
-        for (let i = 0; i < 3; i++) {
-            const frame = await captureFrame(`login_${i}.jpg`);
-            frames.push(frame);
-            await new Promise(resolve => setTimeout(resolve, 150));
-        }
-
-        statusText.innerHTML = "Verifying<span class='dots'></span>";
-
-        // STEP 4: Send token + frames to backend
         const formData = new FormData();
         formData.append("clientid", "19557");
-        formData.append("token", token);        // NEW - required
-
-        frames.forEach(function(frame) {
-            formData.append("photos", frame.blob, frame.filename);
-        });
+        formData.append("photo1", frame1.blob, frame1.filename);
+        formData.append("photo2", frame2.blob, frame2.filename);
+        formData.append("photo3", frame3.blob, frame3.filename);
 
         const response = await fetch("/authenticate", {
             method: "POST",
@@ -730,23 +702,16 @@
         try {
             data = await response.json();
         } catch (e) {
-            const rawError = await response.text();
-            console.error("Backend Error:", rawError);
-            throw new Error(rawError);
+            throw new Error(await response.text());
         }
 
         console.log("AUTH RESPONSE", data);
-
         updateFaceBoxFromBackend(data.face_box);
 
         if (data.success === true && data.matched === true) {
-
             clearInterval(scanTimer);
-
             const stream = video.srcObject;
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+            if (stream) stream.getTracks().forEach(t => t.stop());
 
             statusText.innerText = data.message;
             cameraShell.dataset.state = "matched";
@@ -754,31 +719,25 @@
 
             localStorage.setItem("loggedInUser", data.username);
             localStorage.setItem("loggedInUserId", data.userid);
-
             window.location.replace("welcome.html");
             return;
         }
 
-        statusText.innerText = data.message;
+        //statusText.innerText = data.message;
 
-        if (data.show_password_login) {
-            showFancyLoginPopup();
-            return;
-        } else {
-            document.getElementById("passwordLogin").style.display = "none";
-        }
+        
 
+        document.getElementById("passwordLogin").style.display = "none";
         cameraShell.dataset.state = data.message.includes("Face Not Detected") ? "error" : "checking";
-        cameraShell.style.boxShadow = (data.message || "").includes("Face Not Detected")
-            ? "0 0 25px #ef4444"
-            : "0 0 30px #22d3ee";
+        cameraShell.style.boxShadow = data.message.includes("Face Not Detected")
+            ? "0 0 25px #ef4444" : "0 0 30px #22d3ee";
 
-        showPopupIfNeeded(data.message, "warning");
+        //showPopupIfNeeded(data.message, "warning");
 
     } catch (error) {
         statusText.innerText = "Server error";
         cameraShell.dataset.state = "error";
-        showPopupIfNeeded("Server Error", "error");
+        //showPopupIfNeeded("Server Error", "error");
         console.log(error);
     } finally {
         if (cameraShell.dataset.state !== "matched") {
@@ -800,66 +759,66 @@
             lastPopupTime = now;
             showPopup(message, type);
         }
-    function showFancyLoginPopup() {
+    // function showFancyLoginPopup() {
 
-        isPopupOpen = true;
+    //     isPopupOpen = true;
 
-        clearInterval(scanTimer);
+    //     clearInterval(scanTimer);
 
-        isChecking = false;
+    //     isChecking = false;
 
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "flex";
-    }
+    //     document.getElementById(
+    //         "fancyPopup"
+    //     ).style.display = "flex";
+    // }
 
-    function closeFancyPopup() {
+    // function closeFancyPopup() {
 
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "none";
+    //     document.getElementById(
+    //         "fancyPopup"
+    //     ).style.display = "none";
 
-        statusText.innerText =
-            "Scanning face...";
-        isPopupOpen = false;
-        isChecking = false;
+    //     statusText.innerText =
+    //         "Scanning face...";
+    //     isPopupOpen = false;
+    //     isChecking = false;
 
-        scanTimer = setInterval(
-            checkFaceLogin,
-            900
-        );
-    }
+    //     scanTimer = setInterval(
+    //         checkFaceLogin,
+    //         900
+    //     );
+    // }
 
-    function openPasswordLogin() {
+    // function openPasswordLogin() {
 
-        document.getElementById(
-            "fancyPopup"
-        ).style.display = "none";
+    //     document.getElementById(
+    //         "fancyPopup"
+    //     ).style.display = "none";
 
-        clearInterval(scanTimer);
+    //     clearInterval(scanTimer);
 
-        const stream =
-            video.srcObject;
+    //     const stream =
+    //         video.srcObject;
 
-        if (stream) {
-            stream
-                .getTracks()
-                .forEach(track =>
-                    track.stop()
-                );
-        }
+    //     if (stream) {
+    //         stream
+    //             .getTracks()
+    //             .forEach(track =>
+    //                 track.stop()
+    //             );
+    //     }
 
-        document.getElementById(
-            "cameraShell"
-        ).style.display = "none";
+    //     document.getElementById(
+    //         "cameraShell"
+    //     ).style.display = "none";
 
-        statusText.style.display =
-            "none";
+    //     statusText.style.display =
+    //         "none";
 
-        document.getElementById(
-            "passwordLogin"
-        ).style.display = "block";
-    }
+    //     document.getElementById(
+    //         "passwordLogin"
+    //     ).style.display = "block";
+    // }
     async function manualLogin() {
 
     const username =
@@ -994,43 +953,8 @@ setTimeout(
 }
     
     </script>
-    <div id="fancyPopup" class="popup-overlay">
 
-    <div class="popup-card">
-
-        <div class="popup-icon">
-            ⚠️
-        </div>
-
-        <h2>
-            Face Login Failed
-        </h2>
-
-        <p>
-            Face recognition failed 3 times.
-            Try login another way?
-        </p>
-
-        <div class="popup-buttons">
-
-            <button
-                class="cancel-btn"
-                onclick="closeFancyPopup()"
-            >
-                Continue Scan
-            </button>
-
-            <button
-                class="login-btn"
-                onclick="openPasswordLogin()"
-            >
-                Login Another Way
-            </button>
-
-        </div>
-
-    </div>
-
+    
 </div>
 </body>
 
