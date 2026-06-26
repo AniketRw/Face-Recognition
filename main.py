@@ -3,6 +3,7 @@ from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
 #from deepface import DeepFace
 from insightface.app import FaceAnalysis
+from concurrent.futures import ThreadPoolExecutor
 from fastapi.responses import RedirectResponse
 import socket
 import faiss
@@ -55,22 +56,29 @@ face_app = FaceAnalysis(
 
 face_app.prepare(
     ctx_id=-1,
-    det_size=(160, 160)
+    det_size=(96, 96)
 )
 print("STEP 3")
 
 # --- Model Warm-up Sequence ---
 # This prevents the "Cold Start" delay on the first registration
+
 try:
     print("Warming up face recognition model...")
-    import numpy as np
-    # Create a dummy blank image
-    dummy_img = np.zeros((320, 320, 3), dtype=np.uint8)
-    # Run a dummy detection to trigger model loading/optimization
+    dummy_img = np.ones((160, 160, 3), dtype=np.uint8) * 200
+    dummy_img[40:120, 30:130] = [180, 140, 100]
+    dummy_img[55:70, 45:70]   = [40, 30, 20]
+    dummy_img[55:70, 90:115]  = [40, 30, 20]
+    dummy_img[80:100, 70:90]  = [160, 120, 90]
+    noise = np.random.randint(0, 30, (160, 160, 3), dtype=np.uint8)
+    dummy_img = cv2.add(dummy_img, noise)
     face_app.get(dummy_img)
-    print("Model warm-up complete. Ready for instant registration.")
+    face_app.get(dummy_img)
+    print("Model warm-up complete.")
 except Exception as e:
-    print(f"Warm-up failed (non-critical): {e}")
+        print(f"Warm-up failed (non-critical): {e}")
+        print("Model warm-up complete. Ready for instant registration.")
+
 # ------------------------------
 
 MATCH_DISTANCE_THRESHOLD = 0.65
@@ -167,6 +175,34 @@ MAX_FACE_ATTEMPTS = int(
     )
 )
 failed_attempts = {}
+# FAISS in-memory cache
+_db_cache: dict = {}
+
+def get_client_db(client_id: str):
+    paths        = get_client_paths(client_id)
+    index_path   = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(index_path):
+        return faiss.IndexFlatL2(DIMENSION), {}
+
+    try:
+        mtime = os.path.getmtime(index_path)
+    except Exception:
+        return faiss.IndexFlatL2(DIMENSION), {}
+
+    cached = _db_cache.get(client_id)
+    if cached and cached["mtime"] == mtime:
+        print(f"✅ CACHE HIT: {client_id}")
+        return cached["index"], cached["mapping"]
+
+    print(f"🔄 CACHE MISS: {client_id}")
+    idx = faiss.read_index(index_path)
+    with open(mapping_path) as f:
+        mapping = json.load(f)
+
+    _db_cache[client_id] = {"index": idx, "mapping": mapping, "mtime": mtime}
+    return idx, mapping
 challenge_store = {}                    
 CHALLENGE_EXPIRY_SECONDS = 30
 
@@ -261,7 +297,7 @@ def read_upload_image(photo: UploadFile):
 
     # Reduce image size for CPU optimization only if needed
     height, width = image.shape[:2]
-    max_width = 320
+    max_width = 160
 
     if width > max_width:
         scale = max_width / width
@@ -758,6 +794,7 @@ def upload_entity(
     print("CURRENT MAPPING:")
     print(json.dumps(current_mapping, indent=2))
     save_database(current_index, current_mapping, index_path, mapping_path)
+    _db_cache.pop(client_id, None) 
     
     total_time = time.time() - start_time
     print(f"--- REGISTRATION COMPLETE | TOTAL TIME: {total_time:.3f}s ---")
@@ -818,7 +855,6 @@ def verify_blink(raw_faces: list) -> tuple[bool, str]:
     variation = max(ear_values) - min(ear_values)
     print(f"BLINK EAR variation: {variation:.4f}")
     return (variation >= 0.08), f"Blink variation={variation:.3f}"
-
 
 def verify_head_turn(raw_faces: list, direction: str) -> tuple[bool, str]:
     nose_offsets = []
@@ -1118,6 +1154,163 @@ def get_auth_challenge():
 # ============================================================
 # FAST AUTHENTICATE — blink detected = instant match
 # ============================================================
+# @app.post("/authenticate")
+# def authenticate(
+#     clientid: str = Form(...),
+#     photo1: UploadFile = File(...),
+#     photo2: UploadFile = File(...),
+#     photo3: UploadFile = File(...)
+# ):
+#     t0 = time.time()
+#     client_id = str(clientid).strip()
+
+#     paths = get_client_paths(client_id)
+#     index_path   = paths["faiss"]
+#     mapping_path = paths["mapping"]
+
+#     if os.path.exists(index_path):
+#         current_index = faiss.read_index(index_path)
+#     else:
+#         return {"success": False, "matched": False, "message": "No face database found"}
+
+#     if os.path.exists(mapping_path):
+#         with open(mapping_path, "r") as f:
+#             current_mapping = json.load(f)
+#     else:
+#         return {"success": False, "matched": False, "message": "No face database found"}
+
+#     if current_index.ntotal == 0:
+#         return {"success": False, "matched": False, "message": "No registered faces found"}
+
+#     # --- 3 photos process --- (image resize आधीच होतं, fast)
+#     raw_faces   = []
+#     vectors     = []
+#     boxes       = []
+#     ear_values  = []
+
+#     for photo in [photo1, photo2, photo3]:
+#         try:
+#             image = read_upload_image(photo)
+#             vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
+#             vectors.append(vec)
+#             boxes.append(box)
+#             raw_faces.append(raw)
+
+#             lm = getattr(raw, 'landmark_2d_106', None)
+#             if lm is not None:
+#                 lv = abs(lm[35][1] - lm[40][1])
+#                 lh = abs(lm[33][0] - lm[39][0])
+#                 rv = abs(lm[89][1] - lm[94][1])
+#                 rh = abs(lm[87][0] - lm[93][0])
+#                 ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+#                 ear_values.append(ear)
+#         except Exception as e:
+#             print(f"SKIP: {e}")
+#             continue
+
+#     print(f"FACE DETECT: {time.time() - t0:.3f}s")
+
+#     if not vectors:
+#         return {"success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Face Not Detected"}
+
+#     # --- Blink check — FAST (no loop, direct index) ---
+#     # ear_values = []
+#     # for face in raw_faces:
+#     #     lm = getattr(face, 'landmark_2d_106', None)
+#     #     if lm is None:
+#     #         continue
+#     #     lv = abs(lm[35][1] - lm[40][1])
+#     #     lh = abs(lm[33][0] - lm[39][0])
+#     #     rv = abs(lm[89][1] - lm[94][1])
+#     #     rh = abs(lm[87][0] - lm[93][0])
+#     #     ear_values.append(((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0)
+
+#     print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
+
+#     blink_ok = False
+#     if len(ear_values) >= 2:
+#         variation = max(ear_values) - min(ear_values)
+#         min_ear   = min(ear_values)
+#         print(f"EAR VARIATION: {variation:.4f}, MIN EAR: {min_ear:.4f}")
+#         blink_ok = (variation >= 0.04) or (min_ear < 0.18)
+
+#     print(f"BLINK CHECK: {time.time() - t0:.3f}s")
+
+#     if not blink_ok:
+#         failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#         attempts  = failed_attempts["camera_login"]
+#         remaining = MAX_FACE_ATTEMPTS - attempts
+
+#         # if attempts >= MAX_FACE_ATTEMPTS:
+#         #     failed_attempts["camera_login"] = 0
+#         #     return {"success": False, "matched": False,
+#         #             "show_password_login": True,
+#         #             "message": "Face login failed 3 times. Use username and password."}
+
+#         # return {"success": False, "matched": False,
+#         #         "show_password_login": False,
+#         #         "message": f"Blink not detected. {remaining} attempts left."}
+
+#         return {
+#         "success": False,
+#         "matched": False,
+#         "show_password_login": False,
+#         "message": f"Blink not detected  Just Blink ."
+#     }
+
+#     # --- Blink OK → ONLY middle frame match (skip others) ---
+#     best_vector  = vectors[len(vectors) // 2]
+#     best_box     = boxes[len(boxes) // 2]
+
+#     match, match_status = find_best_user_match(
+#         best_vector, current_index, current_mapping
+#     )
+
+#     print(f"TOTAL AUTH: {time.time() - t0:.3f}s")
+
+#     if match_status == "matched":
+#         user = match["user"]
+#         failed_attempts["camera_login"] = 0
+#         return {
+#             "success":  True, "matched": True,
+#             "message":  f"Welcome {user['username']}",
+#             "userid":   user.get("userid"),
+#             "username": user["username"],
+#             "face_box": best_box
+#         }
+
+#     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#     attempts  = failed_attempts["camera_login"]
+#     remaining = MAX_FACE_ATTEMPTS - attempts
+
+#     if attempts >= MAX_FACE_ATTEMPTS:
+#         failed_attempts["camera_login"] = 0
+#         return {"success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."}
+
+#     return {"success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": best_box}
+#     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#     attempts  = failed_attempts["camera_login"]
+#     remaining = MAX_FACE_ATTEMPTS - attempts
+#     face_box  = face_boxes_collected[len(face_boxes_collected) // 2] \
+#                 if face_boxes_collected else None
+
+#     if attempts >= MAX_FACE_ATTEMPTS:
+#         return {"success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."}
+
+#     return {"success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": face_box}
+
 @app.post("/authenticate")
 def authenticate(
     clientid: str = Form(...),
@@ -1125,104 +1318,145 @@ def authenticate(
     photo2: UploadFile = File(...),
     photo3: UploadFile = File(...)
 ):
+    import time
+    T = {}  # timing dict
+
     t0 = time.time()
     client_id = str(clientid).strip()
 
+    # --- FAISS Load ---
+    t1 = time.time()
     paths = get_client_paths(client_id)
     index_path   = paths["faiss"]
     mapping_path = paths["mapping"]
 
-    if os.path.exists(index_path):
-        current_index = faiss.read_index(index_path)
-    else:
-        return {"success": False, "matched": False, "message": "No face database found"}
+    # if os.path.exists(index_path):
+    #     current_index = faiss.read_index(index_path)
+    # else:
+    #     return {"success": False, "matched": False, "message": "No face database found"}
 
-    if os.path.exists(mapping_path):
-        with open(mapping_path, "r") as f:
-            current_mapping = json.load(f)
-    else:
-        return {"success": False, "matched": False, "message": "No face database found"}
+    # if os.path.exists(mapping_path):
+    #     with open(mapping_path, "r") as f:
+    #         current_mapping = json.load(f)
+    # else:
+    #     return {"success": False, "matched": False, "message": "No face database found"}
+
+    # T["faiss_load"] = round((time.time() - t1) * 1000)
+    # print(f"⏱ FAISS Load:     {T['faiss_load']}ms")
+    current_index, current_mapping = get_client_db(client_id)
+    T["faiss_load"] = round((time.time() - t1) * 1000)
+    print(f"⏱ FAISS Load: {T['faiss_load']}ms")
 
     if current_index.ntotal == 0:
         return {"success": False, "matched": False, "message": "No registered faces found"}
 
-    # --- 3 photos process --- (image resize आधीच होतं, fast)
-    raw_faces   = []
-    vectors     = []
-    boxes       = []
+    # --- Image Read ---
+    t2 = time.time()
+    raw_faces  = []
+    vectors    = []
+    boxes      = []
+    ear_values = []
 
-    for photo in [photo1, photo2, photo3]:
+    # for i, photo in enumerate([photo1, photo2, photo3], 1):
+    #     tp = time.time()
+    #     try:
+    #         image = read_upload_image(photo)
+    #         T[f"img_read_{i}"] = round((time.time() - tp) * 1000)
+    #         print(f"⏱ Image Read {i}:   {T[f'img_read_{i}']}ms")
+
+    #         # --- Face Detection ---
+    #         td = time.time()
+    #         vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
+    #         T[f"face_detect_{i}"] = round((time.time() - td) * 1000)
+    #         print(f"⏱ Face Detect {i}:  {T[f'face_detect_{i}']}ms")
+
+    #         vectors.append(vec)
+    #         boxes.append(box)
+    #         raw_faces.append(raw)
+
+    #         lm = getattr(raw, 'landmark_2d_106', None)
+    #         if lm is not None:
+    #             lv = abs(lm[35][1] - lm[40][1])
+    #             lh = abs(lm[33][0] - lm[39][0])
+    #             rv = abs(lm[89][1] - lm[94][1])
+    #             rh = abs(lm[87][0] - lm[93][0])
+    #             ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+    #             ear_values.append(ear)
+
+    #     except Exception as e:
+    #         print(f"SKIP photo {i}: {e}")
+    #         continue
+
+    def process_one(photo):
         try:
             image = read_upload_image(photo)
             vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
-            vectors.append(vec)
-            boxes.append(box)
-            raw_faces.append(raw)
+            lm = getattr(raw, 'landmark_2d_106', None)
+            ear = None
+            if lm is not None:
+                lv = abs(lm[35][1] - lm[40][1])
+                lh = abs(lm[33][0] - lm[39][0])
+                rv = abs(lm[89][1] - lm[94][1])
+                rh = abs(lm[87][0] - lm[93][0])
+                ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+            return vec, box, raw, ear
         except Exception as e:
             print(f"SKIP: {e}")
-            continue
+            return None
 
-    print(f"FACE DETECT: {time.time() - t0:.3f}s")
+    t2 = time.time()
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        results = list(ex.map(process_one, [photo1, photo2, photo3]))
+
+    results = [r for r in results if r is not None]
+    vectors    = [r[0] for r in results]
+    boxes      = [r[1] for r in results]
+    raw_faces  = [r[2] for r in results]
+    ear_values = [r[3] for r in results if r[3] is not None]
+
+    T["all_photos"] = round((time.time() - t2) * 1000)
+    print(f"⏱ All Photos (parallel): {T['all_photos']}ms")
+
+
+    # --- Blink Check ---
+    t3 = time.time()
+    print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
+    blink_ok = False
+    if len(ear_values) >= 2:
+        variation = max(ear_values) - min(ear_values)
+        min_ear   = min(ear_values)
+        blink_ok  = (variation >= 0.04) or (min_ear < 0.18)
+    T["blink_check"] = round((time.time() - t3) * 1000)
+    print(f"⏱ Blink Check:    {T['blink_check']}ms")
 
     if not vectors:
         return {"success": False, "matched": False,
                 "show_password_login": False,
                 "message": "Face Not Detected"}
 
-    # --- Blink check — FAST (no loop, direct index) ---
-    ear_values = []
-    for face in raw_faces:
-        lm = getattr(face, 'landmark_2d_106', None)
-        if lm is None:
-            continue
-        lv = abs(lm[35][1] - lm[40][1])
-        lh = abs(lm[33][0] - lm[39][0])
-        rv = abs(lm[89][1] - lm[94][1])
-        rh = abs(lm[87][0] - lm[93][0])
-        ear_values.append(((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0)
-
-    print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
-
-    blink_ok = False
-    if len(ear_values) >= 2:
-        variation = max(ear_values) - min(ear_values)
-        print(f"EAR VARIATION: {variation:.4f}")
-        blink_ok = variation >= 0.06  # 0.08 → 0.06 (slightly easier)
-
-    print(f"BLINK CHECK: {time.time() - t0:.3f}s")
-
     if not blink_ok:
-        failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
-        attempts  = failed_attempts["camera_login"]
-        remaining = MAX_FACE_ATTEMPTS - attempts
+        return {"success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Blink not detected. Just Blink."}
 
-        # if attempts >= MAX_FACE_ATTEMPTS:
-        #     failed_attempts["camera_login"] = 0
-        #     return {"success": False, "matched": False,
-        #             "show_password_login": True,
-        #             "message": "Face login failed 3 times. Use username and password."}
+    # --- FAISS Match ---
+    t4 = time.time()
+    best_vector = vectors[len(vectors) // 2]
+    best_box    = boxes[len(boxes) // 2]
+    match, match_status = find_best_user_match(best_vector, current_index, current_mapping)
+    T["faiss_match"] = round((time.time() - t4) * 1000)
+    print(f"⏱ FAISS Match:    {T['faiss_match']}ms")
 
-        # return {"success": False, "matched": False,
-        #         "show_password_login": False,
-        #         "message": f"Blink not detected. {remaining} attempts left."}
+    # --- TOTAL ---
+    T["total"] = round((time.time() - t0) * 1000)
+    print(f"\n{'='*40}")
+    print(f"📊 TIMING SUMMARY:")
+    for k, v in T.items():
+        bar = '█' * (v // 20)
+        print(f"   {k:<20} {v:>5}ms  {bar}")
+    print(f"{'='*40}\n")
 
-        return {
-        "success": False,
-        "matched": False,
-        "show_password_login": False,
-        "message": f"Blink not detected  Just Blink ."
-    }
-
-    # --- Blink OK → ONLY middle frame match (skip others) ---
-    best_vector  = vectors[len(vectors) // 2]
-    best_box     = boxes[len(boxes) // 2]
-
-    match, match_status = find_best_user_match(
-        best_vector, current_index, current_mapping
-    )
-
-    print(f"TOTAL AUTH: {time.time() - t0:.3f}s")
-
+    # --- Result ---
     if match_status == "matched":
         user = match["user"]
         failed_attempts["camera_login"] = 0
@@ -1232,11 +1466,11 @@ def authenticate(
             "userid":   user.get("userid"),
             "username": user["username"],
             "face_box": best_box
+        
         }
 
     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
     attempts  = failed_attempts["camera_login"]
-    remaining = MAX_FACE_ATTEMPTS - attempts
 
     if attempts >= MAX_FACE_ATTEMPTS:
         failed_attempts["camera_login"] = 0
@@ -1246,25 +1480,9 @@ def authenticate(
 
     return {"success": False, "matched": False,
             "show_password_login": False,
-            "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": best_box}
-    failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
-    attempts  = failed_attempts["camera_login"]
-    remaining = MAX_FACE_ATTEMPTS - attempts
-    face_box  = face_boxes_collected[len(face_boxes_collected) // 2] \
-                if face_boxes_collected else None
-
-    if attempts >= MAX_FACE_ATTEMPTS:
-        return {"success": False, "matched": False,
-                "show_password_login": True,
-                "message": "Face login failed 3 times. Use username and password."}
-
-    return {"success": False, "matched": False,
-            "show_password_login": False,
-            "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": face_box}
-
-
+            "message": f"Face not matched. {MAX_FACE_ATTEMPTS - attempts} attempts left.",
+            "face_box": best_box,
+            }
 
 @app.post("/manual-login")
 def manual_login(
