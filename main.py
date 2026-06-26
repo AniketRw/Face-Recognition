@@ -1521,7 +1521,7 @@ def manual_login(
 @app.post("/remove-user")
 def remove_user(
     clientid: str = Form(...),
-    userid: int = Form(...)
+    userid: str = Form(...)
 ):
     client_id = str(clientid)
     paths = get_client_paths(client_id)
@@ -1545,13 +1545,29 @@ def remove_user(
 
     # Find all vector IDs that belong to this userid
     ids_to_remove = set()
+    # for vector_id_str, user_data in current_mapping.items():
+    #     stored_userid = (
+    #         user_data.get("userid")
+    #         if isinstance(user_data, dict)
+    #         else None
+    #     )
+    #     if stored_userid == userid:
+    #         ids_to_remove.add(int(vector_id_str))
     for vector_id_str, user_data in current_mapping.items():
         stored_userid = (
             user_data.get("userid")
             if isinstance(user_data, dict)
             else None
         )
-        if stored_userid == userid:
+
+        print(
+            "VECTOR:", vector_id_str,
+            "STORED:", stored_userid,
+            type(stored_userid)
+        )
+
+        if str(stored_userid) == str(userid):
+            print("MATCH FOUND:", vector_id_str)
             ids_to_remove.add(int(vector_id_str))
 
     if not ids_to_remove:
