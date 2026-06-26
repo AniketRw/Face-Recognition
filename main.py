@@ -1425,7 +1425,10 @@ def authenticate(
     if len(ear_values) >= 2:
         variation = max(ear_values) - min(ear_values)
         min_ear   = min(ear_values)
-        blink_ok  = (variation >= 0.04) or (min_ear < 0.18)
+        print(f"EAR VARIATION: {variation:.4f}")
+        print(f"MIN EAR: {min_ear:.4f}")
+        blink_ok  = (variation >= 0.10) and (min_ear < 0.22)
+        print(f"BLINK OK: {blink_ok}")
     T["blink_check"] = round((time.time() - t3) * 1000)
     print(f"⏱ Blink Check:    {T['blink_check']}ms")
 
