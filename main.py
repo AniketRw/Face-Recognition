@@ -1630,8 +1630,10 @@ async def remove_image(
 
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
-
-    # সব files মधून UUID extract करा
+    print("REMOVE PATH:", mapping_path)
+    print("REQUEST USERID:", repr(userid), type(userid))
+    print("REMOVE MAPPING:")
+    print(json.dumps(current_mapping, indent=2))
     image_ids = []
     for file in image_id:
         raw_name = file.filename
