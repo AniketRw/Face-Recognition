@@ -679,9 +679,15 @@ def upload_entity(
             face_vector = get_face_vector(image, return_box=False)
             print(f"  Photo {photo_index} processed in {time.time() - step_start:.3f}s")
             #face_vectors.append(face_vector)
+            # face_vectors.append({
+            #     "vector": face_vector,
+            #     "filename": photo.filename
+            # })
+            photo.file.seek(0)
             face_vectors.append({
-                "vector": face_vector,
-                "filename": photo.filename
+                "vector":     face_vector,
+                "filename":   photo.filename,
+                "photo_file": photo.file
             })
         except Exception as e:
             skipped_photos.append({
@@ -768,6 +774,30 @@ def upload_entity(
     #         "image_id": image_id,
     #         "filename": photo.filename
     #     }
+    # for item in face_vectors:
+
+    #     current_index.add(
+    #         item["vector"].astype(np.float32)
+    #     )
+
+    #     vector_id = current_index.ntotal - 1
+
+    #     image_id = str(uuid.uuid4())
+
+    #     current_mapping[str(vector_id)] = {
+    #         "userid": userid,
+    #         "username": username,
+    #         "image_id": image_id,
+    #         "filename": item["filename"]
+    #     }
+
+    #     registered_images.append({
+    #         "image_id": image_id,
+    #         "filename": item["filename"]
+    #     })
+    IMAGES_DIR = os.path.join(BASE_STORAGE, client_id, "images")
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+
     for item in face_vectors:
 
         current_index.add(
@@ -785,11 +815,18 @@ def upload_entity(
             "filename": item["filename"]
         }
 
-        registered_images.append({
-            "image_id": image_id,
-            "filename": item["filename"]
-        })
+        ext = os.path.splitext(item["filename"])[-1] or ".jpg"
+        save_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+        with open(save_path, "wb") as f:
+            f.write(item["photo_file"].read())
+        print(f"IMAGE SAVED: {save_path}")
 
+        registered_images.append({
+            "vector_id": vector_id + 1,
+            "image_id":  image_id,
+            "filename":  item["filename"],
+            "image_path": save_path
+        })
 
     print("CURRENT MAPPING:")
     print(json.dumps(current_mapping, indent=2))
@@ -1769,6 +1806,99 @@ def list_users(clientid: str):
         "total_vectors": len(current_mapping),
         "users": users
     }
+
+@app.post("/delete-face")
+def delete_face(
+    clientid: str = Form(...),
+    userid: int = Form(...),
+    vector_ids: str = Form(...)  # comma-separated, display IDs (1-based) e.g. "1,2,3"
+):
+    client_id = str(clientid).strip()
+    paths = get_client_paths(client_id)
+
+    index_path   = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+        return {
+            "success": False,
+            "message": "No face database found for this client"
+        }
+
+    current_index = faiss.read_index(index_path)
+    with open(mapping_path, "r") as f:
+        current_mapping = json.load(f)
+
+    # Display ID (1-based) → actual FAISS ID (0-based)
+    try:
+        ids_to_remove = set(
+            int(vid.strip()) - 1
+            for vid in vector_ids.split(",")
+            if vid.strip().isdigit()
+        )
+    except Exception:
+        return {
+            "success": False,
+            "message": "Invalid vector_ids format. Expected comma-separated integers."
+        }
+
+    # Validate: हे vector_ids या userid चेच आहेत का?
+    invalid_ids = []
+    for vid in ids_to_remove:
+        user_data = current_mapping.get(str(vid))
+        if user_data is None:
+            invalid_ids.append({
+                "vector_id": vid + 1,
+                "reason": "Vector ID not found"
+            })
+            continue
+        stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
+        if stored_userid != userid:
+            invalid_ids.append({
+                "vector_id": vid + 1,
+                "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
+            })
+
+    if invalid_ids:
+        return {
+            "success": False,
+            "message": "Some vector IDs are invalid or belong to a different user.",
+            "invalid_ids": invalid_ids
+        }
+
+    # Keep करायचे IDs
+    ids_to_keep = [
+        int(vid)
+        for vid in current_mapping.keys()
+        if int(vid) not in ids_to_remove
+    ]
+
+    # Reconstruct kept vectors
+    kept_vectors = []
+    for old_id in ids_to_keep:
+        vec = current_index.reconstruct(old_id)
+        kept_vectors.append(vec)
+
+    # नवीन index आणि mapping बनव
+    new_index   = faiss.IndexFlatL2(DIMENSION)
+    new_mapping = {}
+
+    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+        new_index.add(np.array([vec], dtype=np.float32))
+        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+
+    save_database(new_index, new_mapping, index_path, mapping_path)
+    _db_cache.pop(client_id, None)
+
+    return {
+        "success": True,
+        "message": f"Removed {len(ids_to_remove)} vector(s) for userid {userid}.",
+        "userid": userid,
+        "vectors_removed": len(ids_to_remove),
+        "vectors_remaining": new_index.ntotal,
+        "removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # display IDs परत
+    }
+
 @app.post("/remove-user-vector")
 def remove_user_vector(
     clientid: str = Form(...),
