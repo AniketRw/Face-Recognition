@@ -1826,7 +1826,7 @@ def list_users(clientid: str):
 @app.post("/delete-face")
 def delete_face(
     clientid: str = Form(...),
-    userid: int = Form(...),
+    userid: str = Form(...),
     vector_ids: str = Form(...)  # comma-separated, display IDs (1-based) e.g. "1,2,3"
 ):
     client_id = str(clientid).strip()
@@ -1869,7 +1869,8 @@ def delete_face(
             })
             continue
         stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
-        if stored_userid != userid:
+        #if stored_userid != userid:
+        if str(stored_userid) != str(userid):
             invalid_ids.append({
                 "vector_id": vid + 1,
                 "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
