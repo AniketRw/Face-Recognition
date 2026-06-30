@@ -804,7 +804,7 @@ def upload_entity(
             item["vector"].astype(np.float32)
         )
 
-        vector_id = current_index.ntotal - 1
+        vector_id = current_index.ntotal
 
         image_id = str(uuid.uuid4())
 
@@ -822,7 +822,7 @@ def upload_entity(
         print(f"IMAGE SAVED: {save_path}")
 
         registered_images.append({
-            "vector_id": vector_id + 1,
+            "vector_id": vector_id,
             "image_id":  image_id,
             "filename":  item["filename"],
             "image_path": save_path
@@ -1626,7 +1626,7 @@ def remove_user(
     # Reconstruct kept vectors from existing index
     kept_vectors = []
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        vec = current_index.reconstruct(old_id-1)
         kept_vectors.append(vec)
 
     # Build a fresh index with only the kept vectors
@@ -1712,7 +1712,7 @@ async def remove_image(
 
     kept_vectors = []
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        vec = current_index.reconstruct(old_id-1)
         kept_vectors.append(vec)
 
     new_index = faiss.IndexFlatL2(DIMENSION)
@@ -1847,7 +1847,7 @@ def delete_face(
     # Display ID (1-based) -> internal FAISS ID (0-based)
     try:
         ids_to_remove = set(
-            int(vid.strip()) - 1
+            int(vid.strip()) 
             for vid in vector_ids.split(",")
             if vid.strip().isdigit()
         )
@@ -1876,7 +1876,7 @@ def delete_face(
         stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
         if str(stored_userid) != str(userid):
             invalid_ids.append({
-                "vector_id": vid + 1,
+                "vector_id": vid ,
                 "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
             })
 
@@ -1897,7 +1897,7 @@ def delete_face(
     # Reconstruct kept vectors
     kept_vectors = []
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        vec = current_index.reconstruct(old_id-1)
         kept_vectors.append(vec)
 
     # Rebuild index and mapping with remapped (re-sequenced) IDs
@@ -2003,7 +2003,7 @@ def remove_user_vector(
     # Reconstruct kept vectors
     kept_vectors = []
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        vec = current_index.reconstruct(old_id-1)
         kept_vectors.append(vec)
 
     # Rebuild index and mapping with remapped IDs
