@@ -1822,12 +1822,11 @@ def list_users(clientid: str):
         "total_vectors": len(current_mapping),
         "users": users
     }
-
 @app.post("/delete-face")
 def delete_face(
     clientid: str = Form(...),
     userid: str = Form(...),
-    vector_ids: str = Form(...)  # comma-separated, display IDs (1-based) e.g. "1,2,3"
+    vector_ids: str = Form(...)  # comma-separated, 1-based display IDs e.g. "1,2,3"
 ):
     client_id = str(clientid).strip()
     paths = get_client_paths(client_id)
@@ -1845,7 +1844,7 @@ def delete_face(
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
 
-    # Display ID (1-based) → actual FAISS ID (0-based)
+    # Display ID (1-based) -> internal FAISS ID (0-based)
     try:
         ids_to_remove = set(
             int(vid.strip()) - 1
@@ -1858,7 +1857,13 @@ def delete_face(
             "message": "Invalid vector_ids format. Expected comma-separated integers."
         }
 
-    # Validate: हे vector_ids या userid चेच आहेत का?
+    if not ids_to_remove or any(vid < 0 for vid in ids_to_remove):
+        return {
+            "success": False,
+            "message": "Invalid vector_ids. IDs must be 1 or greater."
+        }
+
+    # Validate: each requested vector_id must exist and belong to this userid
     invalid_ids = []
     for vid in ids_to_remove:
         user_data = current_mapping.get(str(vid))
@@ -1869,7 +1874,6 @@ def delete_face(
             })
             continue
         stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
-        #if stored_userid != userid:
         if str(stored_userid) != str(userid):
             invalid_ids.append({
                 "vector_id": vid + 1,
@@ -1883,7 +1887,7 @@ def delete_face(
             "invalid_ids": invalid_ids
         }
 
-    # Keep करायचे IDs
+    # IDs to keep
     ids_to_keep = [
         int(vid)
         for vid in current_mapping.keys()
@@ -1896,7 +1900,7 @@ def delete_face(
         vec = current_index.reconstruct(old_id)
         kept_vectors.append(vec)
 
-    # नवीन index आणि mapping बनव
+    # Rebuild index and mapping with remapped (re-sequenced) IDs
     new_index   = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
@@ -1913,7 +1917,7 @@ def delete_face(
         "userid": userid,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal,
-        "removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # display IDs परत
+        "removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # 1-based display IDs
     }
 
 @app.post("/remove-user-vector")
