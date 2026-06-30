@@ -430,7 +430,16 @@ def find_best_user_match(face_vector, index, user_mapping):
         if vector_id < 0:
             continue
 
-        user = get_registered_user(vector_id, user_mapping)
+        #user = get_registered_user(vector_id, user_mapping)
+        user = None
+
+        for data in user_mapping.values():
+            if (
+                isinstance(data, dict)
+                and data.get("faiss_pos") == vector_id
+            ):
+                user = data
+                break
         if not user:
             continue
 
@@ -736,7 +745,16 @@ def upload_entity(
         if nearest_distance > MATCH_DISTANCE_THRESHOLD:
             continue
 
-        existing_user = current_mapping.get(str(nearest_id))
+        #existing_user = current_mapping.get(str(nearest_id))
+        existing_user = None
+
+        for data in current_mapping.values():
+            if (
+                isinstance(data, dict)
+                and data.get("faiss_pos") == nearest_id
+            ):
+                existing_user = data
+                break
         if not existing_user:
             continue
 
@@ -800,11 +818,35 @@ def upload_entity(
 
     for item in face_vectors:
 
+        # current_index.add(
+        #     item["vector"].astype(np.float32)
+        # )
+
+        # vector_id = current_index.ntotal
+
+        # image_id = str(uuid.uuid4())
+        # Internal FAISS position
         current_index.add(
             item["vector"].astype(np.float32)
         )
 
-        vector_id = current_index.ntotal
+        #internal_id = current_index.ntotal - 1
+        if current_mapping:
+            internal_id = max(map(int, current_mapping.keys())) + 1
+        else:
+            internal_id = 0
+
+        user_vector_ids = [
+            data.get("vector_id", 0)
+            for data in current_mapping.values()
+                if isinstance(data, dict)
+                and str(data.get("userid")) == str(userid)
+        ]
+
+        if user_vector_ids:
+            display_vector_id = max(user_vector_ids) + 1
+        else:
+            display_vector_id = 1
 
         image_id = str(uuid.uuid4())
 
@@ -814,8 +856,9 @@ def upload_entity(
         #     "image_id": image_id,
         #     "filename": item["filename"]
         # }
-        current_mapping[str(vector_id)] = {
+        current_mapping[str(internal_id)] = {
             "userid": userid,
+            "vector_id": display_vector_id,
             "faiss_pos": current_index.ntotal - 1,
             "username": username,
             "image_id": image_id,
@@ -829,7 +872,7 @@ def upload_entity(
         print(f"IMAGE SAVED: {save_path}")
 
         registered_images.append({
-            "vector_id": vector_id,
+            "vector_id": display_vector_id,
             "image_id":  image_id,
             "filename":  item["filename"],
             "image_path": save_path
@@ -1632,112 +1675,33 @@ def remove_user(
 
     # Reconstruct kept vectors from existing index
     kept_vectors = []
+    # for old_id in ids_to_keep:
+    #     vec = current_index.reconstruct(old_id-1)
+    #     kept_vectors.append(vec)
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id-1)
+        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
+        vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
-
     # Build a fresh index with only the kept vectors
     new_index = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)]["faiss_pos"] = new_pos
+
+
 
     
 
     save_database(new_index, new_mapping, index_path, mapping_path)
+    _db_cache.pop(client_id, None)
 
     return {
         "success": True,
         "message": f"Removed {len(ids_to_remove)} face vector(s) for userid {userid}",
         "userid": userid,
-        "vectors_removed": len(ids_to_remove),
-        "vectors_remaining": new_index.ntotal
-    }
-
-@app.post("/remove-image")
-async def remove_image(
-    clientid: str = Form(...),
-    userid: int = Form(...),
-    image_id: List[UploadFile] = File(...)  # Multiple files accept
-):
-    client_id = str(clientid).strip()
-    paths = get_client_paths(client_id)
-    index_path = paths["faiss"]
-    mapping_path = paths["mapping"]
-
-    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-        return {
-            "success": False,
-            "message": "No face database found for this client"
-        }
-
-    current_index = faiss.read_index(index_path)
-
-    with open(mapping_path, "r") as f:
-        current_mapping = json.load(f)
-    print("REMOVE PATH:", mapping_path)
-    print("REQUEST USERID:", repr(userid), type(userid))
-    print("REMOVE MAPPING:")
-    print(json.dumps(current_mapping, indent=2))
-    image_ids = []
-    for file in image_id:
-        raw_name = file.filename
-        uuid_str = os.path.splitext(raw_name)[0]
-        image_ids.append(uuid_str.strip())
-
-    print("REQUEST IMAGE IDs:", image_ids)
-    print("AVAILABLE IMAGE IDS:")
-    for vid, data in current_mapping.items():
-        if isinstance(data, dict):
-            print(vid, data.get("image_id"), data.get("filename"))
-
-    # सगळ्या image_ids साठी vectors find करा
-    ids_to_remove = set()
-    for vector_id, data in current_mapping.items():
-        if not isinstance(data, dict):
-            continue
-        if (
-            data.get("userid") == userid
-            and data.get("image_id") in image_ids
-        ):
-            print("MATCH FOUND:", vector_id, data.get("image_id"))
-            ids_to_remove.add(int(vector_id))
-
-    if not ids_to_remove:
-        return {
-            "success": False,
-            "message": "No matching Image IDs found"
-        }
-
-    ids_to_keep = [
-        int(vid)
-        for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
-    ]
-
-    kept_vectors = []
-    for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id-1)
-        kept_vectors.append(vec)
-
-    new_index = faiss.IndexFlatL2(DIMENSION)
-    new_mapping = {}
-
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
-        new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
-
-    print("NEW MAPPING:")
-    print(json.dumps(new_mapping, indent=2))
-
-    save_database(new_index, new_mapping, index_path, mapping_path)
-
-    return {
-        "success": True,
-        "userid": userid,
-        "image_ids_removed": image_ids,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal
     }
@@ -1881,19 +1845,28 @@ def delete_face(
 
     # Validate: each requested vector_id must exist and belong to this userid
     invalid_ids = []
+    ids_to_remove_internal = set()
+
     for vid in ids_to_remove:
-        user_data = current_mapping.get(str(vid))
-        if user_data is None:
+        found = False
+
+        for internal_id, data in current_mapping.items():
+
+            if not isinstance(data, dict):
+                continue
+
+            if (
+                str(data.get("userid")) == str(userid)
+                and data.get("vector_id") == vid
+            ):
+                ids_to_remove_internal.add(int(internal_id))
+                found = True
+                break
+
+        if not found:
             invalid_ids.append({
-                "vector_id": vid + 1,
-                "reason": "Vector ID not found"
-            })
-            continue
-        stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
-        if str(stored_userid) != str(userid):
-            invalid_ids.append({
-                "vector_id": vid ,
-                "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
+                "vector_id": vid,
+                "reason": "Vector ID not found for this user"
             })
 
     if invalid_ids:
@@ -1904,10 +1877,15 @@ def delete_face(
         }
 
     # IDs to keep
+    # ids_to_keep = [
+    #     int(vid)
+    #     for vid in current_mapping.keys()
+    #     if int(vid) not in ids_to_remove
+    # ]
     ids_to_keep = [
         int(vid)
         for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
+        if int(vid) not in ids_to_remove_internal
     ]
 
     # Reconstruct kept vectors
@@ -1945,115 +1923,6 @@ def delete_face(
         "removed_vector_ids": sorted(ids_to_remove)
     }
 
-@app.post("/remove-user-vector")
-def remove_user_vector(
-    clientid: str = Form(...),
-    userid: int = Form(...),
-    vector_ids: str = Form(...)   # comma-separated list of vector IDs e.g. "0,2,5"
-):
-    client_id = str(clientid).strip()
-    paths = get_client_paths(client_id)
-
-    index_path = paths["faiss"]
-    mapping_path = paths["mapping"]
-
-    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-        return {
-            "success": False,
-            "message": "No face database found for this client"
-        }
-
-    current_index = faiss.read_index(index_path)
-
-    with open(mapping_path, "r") as f:
-        current_mapping = json.load(f)
-
-    # Parse the requested vector IDs to remove
-    try:
-        ids_to_remove = set(
-            int(vid.strip())
-            for vid in vector_ids.split(",")
-            if vid.strip().isdigit()
-        )
-    except Exception:
-        return {
-            "success": False,
-            "message": "Invalid vector_ids format. Expected comma-separated integers."
-        }
-
-    # Validate: ensure each requested vector_id belongs to the given userid
-    invalid_ids = []
-    for vid in ids_to_remove:
-        user_data = current_mapping.get(str(vid))
-        if user_data is None:
-            invalid_ids.append({"vector_id": vid, "reason": "Vector ID not found"})
-            continue
-        stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
-        if stored_userid != userid:
-            invalid_ids.append({
-                "vector_id": vid,
-                "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
-            })
-
-    if invalid_ids:
-        return {
-            "success": False,
-            "message": "Some vector IDs are invalid or belong to a different user.",
-            "invalid_ids": invalid_ids
-        }
-
-    # Safety check: prevent removing ALL vectors for this user 
-    # (use /remove-user for that)
-    user_vector_ids = {
-        int(vid)
-        for vid, data in current_mapping.items()
-        if (isinstance(data, dict) and data.get("userid") == userid)
-    }
-    # if ids_to_remove >= user_vector_ids:
-    #     return {
-    #         "success": False,
-    #         "message": (
-    #             f"Cannot remove all {len(user_vector_ids)} vectors for userid {userid} "
-    #             "via this endpoint. Use /remove-user instead."
-    #         )
-    #     }
-
-    # Collect IDs to keep
-    ids_to_keep = [
-        int(vid)
-        for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
-    ]
-
-    # Reconstruct kept vectors
-    kept_vectors = []
-    for old_id in ids_to_keep:
-        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
-        vec = current_index.reconstruct(faiss_pos)
-        kept_vectors.append(vec)
-
-    # Rebuild index and mapping with remapped IDs
-    new_index = faiss.IndexFlatL2(DIMENSION)
-    new_mapping = {}
-
-    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
-        new_index.add(np.array([vec], dtype=np.float32))
-
-        new_mapping[str(old_id)] = current_mapping[str(old_id)]
-
-        new_mapping[str(old_id)]["faiss_pos"] = new_pos
-
-    save_database(new_index, new_mapping, index_path, mapping_path)
-
-    return {
-        "success": True,
-        "message": f"Removed {len(ids_to_remove)} vector(s) for userid {userid}.",
-        "userid": userid,
-        "vectors_removed": len(ids_to_remove),
-        "vectors_remaining": new_index.ntotal,
-        "removed_vector_ids": sorted(ids_to_remove)
-    }
-
 @app.get("/list-user-vectors/{clientid}/{userid}")
 def list_user_vectors(clientid: str, userid: int):
     client_id = str(clientid).strip()
@@ -2072,7 +1941,7 @@ def list_user_vectors(clientid: str, userid: int):
     user_vectors = [
         #{"vector_id": int(vid), "username": data.get("username")}
         {
-            "vector_id": int(vid),
+            "vector_id": data.get("vector_id"),
             "username": data.get("username"),
             "image_id": data.get("image_id"),
             "filename": data.get("filename")
