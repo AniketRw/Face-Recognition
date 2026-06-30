@@ -1868,6 +1868,8 @@ def delete_face(
                 "vector_id": vid,
                 "reason": "Vector ID not found for this user"
             })
+        print("REQUESTED DISPLAY IDS:", ids_to_remove)
+        print("INTERNAL IDS TO REMOVE:", ids_to_remove_internal)
 
     if invalid_ids:
         return {
@@ -1889,10 +1891,12 @@ def delete_face(
     ]
 
     # Reconstruct kept vectors
-    kept_vectors = []
+    
     # for old_id in ids_to_keep:
     #     vec = current_index.reconstruct(old_id-1)
     #     kept_vectors.append(vec)
+
+    kept_vectors = []
 
     for old_id in ids_to_keep:
         faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
@@ -1907,8 +1911,10 @@ def delete_face(
 
     for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
+
         new_mapping[str(old_id)] = current_mapping[str(old_id)]
         new_mapping[str(old_id)]["faiss_pos"] = new_pos
+
 
     save_database(new_index, new_mapping, index_path, mapping_path)
     _db_cache.pop(client_id, None)
@@ -1960,7 +1966,8 @@ def list_user_vectors(clientid: str, userid: int):
             "success": False,
             "message": f"No vectors found for userid {userid}"
         }
-
+    print("USER VECTORS:")
+    print(json.dumps(user_vectors, indent=2))
     return {
         "success": True,
         "userid": userid,
