@@ -808,8 +808,15 @@ def upload_entity(
 
         image_id = str(uuid.uuid4())
 
+        # current_mapping[str(vector_id)] = {
+        #     "userid": userid,
+        #     "username": username,
+        #     "image_id": image_id,
+        #     "filename": item["filename"]
+        # }
         current_mapping[str(vector_id)] = {
             "userid": userid,
+            "faiss_pos": current_index.ntotal - 1,
             "username": username,
             "image_id": image_id,
             "filename": item["filename"]
@@ -1905,17 +1912,25 @@ def delete_face(
 
     # Reconstruct kept vectors
     kept_vectors = []
+    # for old_id in ids_to_keep:
+    #     vec = current_index.reconstruct(old_id-1)
+    #     kept_vectors.append(vec)
+
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id-1)
+        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
+        vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
+
+
 
     # Rebuild index and mapping with remapped (re-sequenced) IDs
     new_index   = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors), start=1):
+    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)]["faiss_pos"] = new_pos
 
     save_database(new_index, new_mapping, index_path, mapping_path)
     _db_cache.pop(client_id, None)
@@ -2013,16 +2028,20 @@ def remove_user_vector(
     # Reconstruct kept vectors
     kept_vectors = []
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id-1)
+        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
+        vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
 
     # Rebuild index and mapping with remapped IDs
     new_index = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+
+        new_mapping[str(old_id)] = current_mapping[str(old_id)]
+
+        new_mapping[str(old_id)]["faiss_pos"] = new_pos
 
     save_database(new_index, new_mapping, index_path, mapping_path)
 
