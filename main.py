@@ -1851,11 +1851,20 @@ def delete_face(
             for vid in vector_ids.split(",")
             if vid.strip().isdigit()
         )
+
     except Exception:
         return {
             "success": False,
             "message": "Invalid vector_ids format. Expected comma-separated integers."
         }
+    print("REQUESTED REMOVE IDS:", ids_to_remove)
+    print("CURRENT MAPPING:")
+    print(json.dumps(current_mapping, indent=2))
+    for vid in ids_to_remove:
+        print(
+            f"CHECKING VECTOR {vid}:",
+            current_mapping.get(str(vid))
+        )
 
     if not ids_to_remove or any(vid < 0 for vid in ids_to_remove):
         return {
@@ -1904,7 +1913,7 @@ def delete_face(
     new_index   = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors), start=1):
         new_index.add(np.array([vec], dtype=np.float32))
         new_mapping[str(new_id)] = current_mapping[str(old_id)]
 
@@ -1917,7 +1926,8 @@ def delete_face(
         "userid": userid,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal,
-        "removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # 1-based display IDs
+        #"removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # 1-based display IDs
+        "removed_vector_ids": sorted(ids_to_remove)
     }
 
 @app.post("/remove-user-vector")
