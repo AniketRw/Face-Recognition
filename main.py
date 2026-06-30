@@ -1941,13 +1941,18 @@ def list_user_vectors(clientid: str, userid: int):
     user_vectors = [
         #{"vector_id": int(vid), "username": data.get("username")}
         {
-            "vector_id": data.get("vector_id"),
+            #"vector_id": data.get("vector_id"),
+            "vector_id": data.get("vector_id", int(vid) + 1),
             "username": data.get("username"),
             "image_id": data.get("image_id"),
             "filename": data.get("filename")
         }
         for vid, data in current_mapping.items()
-        if isinstance(data, dict) and data.get("userid") == userid
+        #if isinstance(data, dict) and data.get("userid") == userid
+        if (
+            isinstance(data, dict)
+            and str(data.get("userid")) == str(userid)
+            )
     ]
 
     if not user_vectors:
@@ -1960,7 +1965,11 @@ def list_user_vectors(clientid: str, userid: int):
         "success": True,
         "userid": userid,
         "total_vectors": len(user_vectors),
-        "vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
+        #"vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
+        "vectors": sorted(
+            user_vectors,
+            key=lambda v: v.get("vector_id") or 0
+        )
     }
 
 
