@@ -793,11 +793,23 @@ def upload_entity(
         else:
             display_vector_id = 1
 
+        all_srnos = [
+            data.get("srno", 0)
+            for data in current_mapping.values()
+            if isinstance(data, dict)
+        ]
+
+        if all_srnos:
+            global_srno = max(all_srnos) + 1
+        else:
+            global_srno = 1    
+
         image_id = str(uuid.uuid4())
 
         current_mapping[str(internal_id)] = {
             "userid": userid,
             "vector_id": display_vector_id,
+            "srno": global_srno,
             "faiss_pos": current_index.ntotal - 1,
             "username": username,
             "image_id": image_id,
@@ -811,7 +823,7 @@ def upload_entity(
         print(f"IMAGE SAVED: {save_path}")
 
         registered_images.append({
-            "srno":       display_vector_id,
+            "srno":       global_srno,        
             "vector_id":  display_vector_id,
             "image_id":   image_id,
             "filename":   item["filename"],
