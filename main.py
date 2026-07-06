@@ -2226,6 +2226,7 @@ def list_user_vectors(clientid: str, userid: int):
         #{"vector_id": int(vid), "username": data.get("username")}
         {
             #"vector_id": data.get("vector_id"),
+            "srno":       data.get("srno"),
             "vector_id": data.get("vector_id", int(vid) + 1),
             "username": data.get("username"),
             "image_id": data.get("image_id"),
