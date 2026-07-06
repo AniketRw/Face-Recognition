@@ -3,6 +3,7 @@ from fastapi import FastAPI, Form, UploadFile, File
 from typing import Optional
 #from deepface import DeepFace
 from insightface.app import FaceAnalysis
+from concurrent.futures import ThreadPoolExecutor
 from fastapi.responses import RedirectResponse
 import socket
 import faiss
@@ -24,9 +25,12 @@ import numpy as np
 import secrets
 import time
 
-DATA_DIR = "/app/data"
+#DATA_DIR = "/app/data"
 
-os.makedirs(DATA_DIR, exist_ok=True)
+#os.makedirs(DATA_DIR, exist_ok=True)
+
+DATA_DIR="data"
+os.makedirs(DATA_DIR,exist_ok=True)
 
 app = FastAPI()
 
@@ -55,22 +59,29 @@ face_app = FaceAnalysis(
 
 face_app.prepare(
     ctx_id=-1,
-    det_size=(160, 160)
+    det_size=(96, 96)
 )
 print("STEP 3")
 
 # --- Model Warm-up Sequence ---
 # This prevents the "Cold Start" delay on the first registration
+
 try:
     print("Warming up face recognition model...")
-    import numpy as np
-    # Create a dummy blank image
-    dummy_img = np.zeros((320, 320, 3), dtype=np.uint8)
-    # Run a dummy detection to trigger model loading/optimization
+    dummy_img = np.ones((160, 160, 3), dtype=np.uint8) * 200
+    dummy_img[40:120, 30:130] = [180, 140, 100]
+    dummy_img[55:70, 45:70]   = [40, 30, 20]
+    dummy_img[55:70, 90:115]  = [40, 30, 20]
+    dummy_img[80:100, 70:90]  = [160, 120, 90]
+    noise = np.random.randint(0, 30, (160, 160, 3), dtype=np.uint8)
+    dummy_img = cv2.add(dummy_img, noise)
     face_app.get(dummy_img)
-    print("Model warm-up complete. Ready for instant registration.")
+    face_app.get(dummy_img)
+    print("Model warm-up complete.")
 except Exception as e:
-    print(f"Warm-up failed (non-critical): {e}")
+        print(f"Warm-up failed (non-critical): {e}")
+        print("Model warm-up complete. Ready for instant registration.")
+
 # ------------------------------
 
 MATCH_DISTANCE_THRESHOLD = 0.65
@@ -91,8 +102,8 @@ else:
         os.path.abspath(__file__)
     )
 
-BASE_STORAGE = "/app/data"
-
+#BASE_STORAGE = "/app/data"
+BASE_STORAGE=os.path.join(BASE_DIR,"data")
 
 
 os.makedirs(
@@ -167,6 +178,34 @@ MAX_FACE_ATTEMPTS = int(
     )
 )
 failed_attempts = {}
+# FAISS in-memory cache
+_db_cache: dict = {}
+
+def get_client_db(client_id: str):
+    paths        = get_client_paths(client_id)
+    index_path   = paths["faiss"]
+    mapping_path = paths["mapping"]
+
+    if not os.path.exists(index_path):
+        return faiss.IndexFlatL2(DIMENSION), {}
+
+    try:
+        mtime = os.path.getmtime(index_path)
+    except Exception:
+        return faiss.IndexFlatL2(DIMENSION), {}
+
+    cached = _db_cache.get(client_id)
+    if cached and cached["mtime"] == mtime:
+        print(f"✅ CACHE HIT: {client_id}")
+        return cached["index"], cached["mapping"]
+
+    print(f"🔄 CACHE MISS: {client_id}")
+    idx = faiss.read_index(index_path)
+    with open(mapping_path) as f:
+        mapping = json.load(f)
+
+    _db_cache[client_id] = {"index": idx, "mapping": mapping, "mtime": mtime}
+    return idx, mapping
 challenge_store = {}                    
 CHALLENGE_EXPIRY_SECONDS = 30
 
@@ -261,7 +300,7 @@ def read_upload_image(photo: UploadFile):
 
     # Reduce image size for CPU optimization only if needed
     height, width = image.shape[:2]
-    max_width = 320
+    max_width = 160
 
     if width > max_width:
         scale = max_width / width
@@ -394,7 +433,16 @@ def find_best_user_match(face_vector, index, user_mapping):
         if vector_id < 0:
             continue
 
-        user = get_registered_user(vector_id, user_mapping)
+        #user = get_registered_user(vector_id, user_mapping)
+        user = None
+
+        for data in user_mapping.values():
+            if (
+                isinstance(data, dict)
+                and data.get("faiss_pos") == vector_id
+            ):
+                user = data
+                break
         if not user:
             continue
 
@@ -595,7 +643,6 @@ def login_page():
 
 
     
-
 @app.post("/upload-entity")
 def upload_entity(
     clientid: str = Form(...),
@@ -606,16 +653,13 @@ def upload_entity(
     registered_images = []
     import time
     start_time = time.time()
-    
-    #client_id = str(clientid)
+
     client_id = str(clientid).strip()
     print(f"--- STARTING REGISTRATION FOR {username} (ID: {userid}) ---")
     paths = get_client_paths(client_id)
 
     index_path = paths["faiss"]
     mapping_path = paths["mapping"]
-
-
 
     # Load local database for this client
     if os.path.exists(index_path):
@@ -632,7 +676,7 @@ def upload_entity(
     print("LOGIN CLIENT:", client_id)
     print("LOGIN INDEX:", index_path)
     print("INDEX EXISTS:", os.path.exists(index_path))
-    #print("TOTAL FACES:", current_index.ntotal)
+
     face_vectors = []
     skipped_photos = []
 
@@ -642,10 +686,12 @@ def upload_entity(
             image = read_upload_image(photo)
             face_vector = get_face_vector(image, return_box=False)
             print(f"  Photo {photo_index} processed in {time.time() - step_start:.3f}s")
-            #face_vectors.append(face_vector)
+
+            photo.file.seek(0)
             face_vectors.append({
-                "vector": face_vector,
-                "filename": photo.filename
+                "vector":     face_vector,
+                "filename":   photo.filename,
+                "photo_file": photo.file
             })
         except Exception as e:
             skipped_photos.append({
@@ -672,15 +718,8 @@ def upload_entity(
             "userid": userid,
             "username": username,
         }
-    
-    duplicate_found = None
-    # for face_vector in face_vectors:
-    #     if current_index.ntotal == 0:
-    #         break
 
-    #     distances, indices = current_index.search(
-    #         face_vector.astype(np.float32), 1
-    #     )
+    duplicate_found = None
     for item in face_vectors:
         if current_index.ntotal == 0:
             break
@@ -694,7 +733,14 @@ def upload_entity(
         if nearest_distance > MATCH_DISTANCE_THRESHOLD:
             continue
 
-        existing_user = current_mapping.get(str(nearest_id))
+        existing_user = None
+        for data in current_mapping.values():
+            if (
+                isinstance(data, dict)
+                and data.get("faiss_pos") == nearest_id
+            ):
+                existing_user = data
+                break
         if not existing_user:
             continue
 
@@ -721,66 +767,399 @@ def upload_entity(
             "duplicate_userid": duplicate_found.get("userid") if isinstance(duplicate_found, dict) else None,
         }
 
-    # for face_vector in face_vectors:
-    #     current_index.add(face_vector.astype(np.float32))
-    #     vector_id = current_index.ntotal - 1
-    #     image_id = str(uuid.uuid4())
+    IMAGES_DIR = os.path.join(BASE_STORAGE, client_id, "images")
+    os.makedirs(IMAGES_DIR, exist_ok=True)
 
-    #     current_mapping[str(vector_id)] = {
-    #         "userid": userid,
-    #         "username": username,
-    #         "image_id": image_id,
-    #         "filename": photo.filename
-    #     }
     for item in face_vectors:
 
         current_index.add(
             item["vector"].astype(np.float32)
         )
 
-        vector_id = current_index.ntotal - 1
+        if current_mapping:
+            internal_id = max(map(int, current_mapping.keys())) + 1
+        else:
+            internal_id = 0
+
+        user_vector_ids = [
+            data.get("vector_id", 0)
+            for data in current_mapping.values()
+                if isinstance(data, dict)
+                and str(data.get("userid")) == str(userid)
+        ]
+
+        if user_vector_ids:
+            display_vector_id = max(user_vector_ids) + 1
+        else:
+            display_vector_id = 1
 
         image_id = str(uuid.uuid4())
 
-        current_mapping[str(vector_id)] = {
+        current_mapping[str(internal_id)] = {
             "userid": userid,
+            "vector_id": display_vector_id,
+            "faiss_pos": current_index.ntotal - 1,
             "username": username,
             "image_id": image_id,
             "filename": item["filename"]
         }
 
-        registered_images.append({
-            "image_id": image_id,
-            "filename": item["filename"]
-        })
+        ext = os.path.splitext(item["filename"])[-1] or ".jpg"
+        save_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+        with open(save_path, "wb") as f:
+            f.write(item["photo_file"].read())
+        print(f"IMAGE SAVED: {save_path}")
 
+        registered_images.append({
+            "srno":       display_vector_id,
+            "vector_id":  display_vector_id,
+            "image_id":   image_id,
+            "filename":   item["filename"],
+            "image_path": save_path
+        })
 
     print("CURRENT MAPPING:")
     print(json.dumps(current_mapping, indent=2))
     save_database(current_index, current_mapping, index_path, mapping_path)
-    
+    _db_cache.pop(client_id, None)
+
     total_time = time.time() - start_time
     print(f"--- REGISTRATION COMPLETE | TOTAL TIME: {total_time:.3f}s ---")
     print("SAVED INDEX:", index_path)
     print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
     print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
-    # return {
-    #     "success": True,
-    #     "message": f"Face registered successfully for {username}.",
-    #     "userid": userid,
-    #     "username": username,
-    #     "photos_registered": len(face_vectors),
-    # }
     print("REGISTERED IMAGES:")
     print(json.dumps(registered_images, indent=2))
-    return {
-    "success": True,
-    "message": f"Face registered successfully for {username}.",
-    "userid": userid,
-    "username": username,
-    "photos_registered": len(face_vectors),
-    "images": registered_images
+
+    response_data = {
+        "success": True,
+        "message": f"Face registered successfully for {username}.",
+        "userid": userid,
+        "username": username,
+        "photos_registered": len(face_vectors),
+        "images": registered_images
     }
+
+    print("FINAL RESPONSE:")
+    print(json.dumps(response_data, indent=2))
+
+    return response_data
+
+# @app.post("/upload-entity")
+# def upload_entity(
+#     clientid: str = Form(...),
+
+#     userid: int = Form(...),
+#     username: str = Form(...),
+#     photos: list[UploadFile] = File(...)
+# ):
+#     registered_images = []
+#     import time
+#     start_time = time.time()
+    
+#     #client_id = str(clientid)
+#     client_id = str(clientid).strip()
+#     print(f"--- STARTING REGISTRATION FOR {username} (ID: {userid}) ---")
+#     paths = get_client_paths(client_id)
+
+#     index_path = paths["faiss"]
+#     mapping_path = paths["mapping"]
+
+
+
+#     # Load local database for this client
+#     if os.path.exists(index_path):
+#         current_index = faiss.read_index(index_path)
+#     else:
+#         current_index = faiss.IndexFlatL2(DIMENSION)
+
+#     if os.path.exists(mapping_path):
+#         with open(mapping_path, "r") as file:
+#             current_mapping = json.load(file)
+#     else:
+#         current_mapping = {}
+
+#     print("LOGIN CLIENT:", client_id)
+#     print("LOGIN INDEX:", index_path)
+#     print("INDEX EXISTS:", os.path.exists(index_path))
+#     #print("TOTAL FACES:", current_index.ntotal)
+#     face_vectors = []
+#     skipped_photos = []
+
+#     for photo_index, photo in enumerate(photos, start=1):
+#         try:
+#             step_start = time.time()
+#             image = read_upload_image(photo)
+#             face_vector = get_face_vector(image, return_box=False)
+#             print(f"  Photo {photo_index} processed in {time.time() - step_start:.3f}s")
+#             #face_vectors.append(face_vector)
+#             # face_vectors.append({
+#             #     "vector": face_vector,
+#             #     "filename": photo.filename
+#             # })
+#             photo.file.seek(0)
+#             face_vectors.append({
+#                 "vector":     face_vector,
+#                 "filename":   photo.filename,
+#                 "photo_file": photo.file
+#             })
+#         except Exception as e:
+#             skipped_photos.append({
+#                 "photo_number": photo_index,
+#                 "filename": photo.filename,
+#                 "reason": str(e),
+#             })
+#             continue
+
+#     if skipped_photos:
+#         return {
+#             "success": False,
+#             "message": f"Registration failed. Photo {skipped_photos[0]['photo_number']} issues.",
+#             "userid": userid,
+#             "username": username,
+#             "photos_registered": 0,
+#             "photos_skipped": len(skipped_photos),
+#         }
+
+#     if len(face_vectors) < MIN_REGISTRATION_PHOTOS:
+#         return {
+#             "success": False,
+#             "message": f"Need at least {MIN_REGISTRATION_PHOTOS} photos.",
+#             "userid": userid,
+#             "username": username,
+#         }
+    
+#     duplicate_found = None
+#     # for face_vector in face_vectors:
+#     #     if current_index.ntotal == 0:
+#     #         break
+
+#     #     distances, indices = current_index.search(
+#     #         face_vector.astype(np.float32), 1
+#     #     )
+#     for item in face_vectors:
+#         if current_index.ntotal == 0:
+#             break
+#         distances, indices = current_index.search(
+#             item["vector"].astype(np.float32),
+#             1
+#         )
+#         nearest_distance = float(distances[0][0])
+#         nearest_id = int(indices[0][0])
+
+#         if nearest_distance > MATCH_DISTANCE_THRESHOLD:
+#             continue
+
+#         #existing_user = current_mapping.get(str(nearest_id))
+#         existing_user = None
+
+#         for data in current_mapping.values():
+#             if (
+#                 isinstance(data, dict)
+#                 and data.get("faiss_pos") == nearest_id
+#             ):
+#                 existing_user = data
+#                 break
+#         if not existing_user:
+#             continue
+
+#         existing_userid = (
+#             existing_user.get("userid")
+#             if isinstance(existing_user, dict)
+#             else None
+#         )
+
+#         if existing_userid != userid:
+#             duplicate_found = existing_user
+#             break
+
+#     if duplicate_found:
+#         existing_name = (
+#             duplicate_found.get("username")
+#             if isinstance(duplicate_found, dict)
+#             else duplicate_found
+#         )
+#         return {
+#             "success": False,
+#             "message": f"This face is already registered under a different user. Registration blocked.",
+#             "duplicate_username": existing_name,
+#             "duplicate_userid": duplicate_found.get("userid") if isinstance(duplicate_found, dict) else None,
+#         }
+
+#     # for face_vector in face_vectors:
+#     #     current_index.add(face_vector.astype(np.float32))
+#     #     vector_id = current_index.ntotal - 1
+#     #     image_id = str(uuid.uuid4())
+
+#     #     current_mapping[str(vector_id)] = {
+#     #         "userid": userid,
+#     #         "username": username,
+#     #         "image_id": image_id,
+#     #         "filename": photo.filename
+#     #     }
+#     # for item in face_vectors:
+
+#     #     current_index.add(
+#     #         item["vector"].astype(np.float32)
+#     #     )
+
+#     #     vector_id = current_index.ntotal - 1
+
+#     #     image_id = str(uuid.uuid4())
+
+#     #     current_mapping[str(vector_id)] = {
+#     #         "userid": userid,
+#     #         "username": username,
+#     #         "image_id": image_id,
+#     #         "filename": item["filename"]
+#     #     }
+
+#     #     registered_images.append({
+#     #         "image_id": image_id,
+#     #         "filename": item["filename"]
+#     #     })
+#     # IMAGES_DIR = os.path.join(BASE_STORAGE, client_id, "images")
+#     # os.makedirs(IMAGES_DIR, exist_ok=True)
+
+#     # for item in face_vectors:
+
+#     #     # current_index.add(
+#     #     #     item["vector"].astype(np.float32)
+#     #     # )
+
+#     #     # vector_id = current_index.ntotal
+
+#     #     # image_id = str(uuid.uuid4())
+#     #     # Internal FAISS position
+#     #     current_index.add(
+#     #         item["vector"].astype(np.float32)
+#     #     )
+
+#     #     #internal_id = current_index.ntotal - 1
+#     #     if current_mapping:
+#     #         internal_id = max(map(int, current_mapping.keys())) + 1
+#     #     else:
+#     #         internal_id = 0
+
+#     #     user_vector_ids = [
+#     #         data.get("vector_id", 0)
+#     #         for data in current_mapping.values()
+#     #             if isinstance(data, dict)
+#     #             and str(data.get("userid")) == str(userid)
+#     #     ]
+
+#     #     if user_vector_ids:
+#     #         display_vector_id = max(user_vector_ids) + 1
+#     #     else:
+#     #         display_vector_id = 1
+
+#     #     image_id = str(uuid.uuid4())
+
+#     #     # current_mapping[str(vector_id)] = {
+#     #     #     "userid": userid,
+#     #     #     "username": username,
+#     #     #     "image_id": image_id,
+#     #     #     "filename": item["filename"]
+#     #     # }
+#     #     current_mapping[str(internal_id)] = {
+#     #         "userid": userid,
+#     #         "vector_id": display_vector_id,
+#     #         "faiss_pos": current_index.ntotal - 1,
+#     #         "username": username,
+#     #         "image_id": image_id,
+#     #         "filename": item["filename"]
+#     #     }
+
+#     #     ext = os.path.splitext(item["filename"])[-1] or ".jpg"
+#     #     save_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+#     #     with open(save_path, "wb") as f:
+#     #         f.write(item["photo_file"].read())
+#     #     print(f"IMAGE SAVED: {save_path}")
+
+#     #     registered_images.append({
+#     #         "vector_id": display_vector_id,
+#     #         "image_id":  image_id,
+#     #         "filename":  item["filename"],
+#     #         "image_path": save_path
+#     #     })
+# IMAGES_DIR = os.path.join(BASE_STORAGE, client_id, "images")
+# os.makedirs(IMAGES_DIR, exist_ok=True)
+
+# for item in face_vectors:
+
+#     current_index.add(
+#         item["vector"].astype(np.float32)
+#     )
+
+#     if current_mapping:
+#         internal_id = max(map(int, current_mapping.keys())) + 1
+#     else:
+#         internal_id = 0
+
+#     user_vector_ids = [
+#         data.get("vector_id", 0)
+#         for data in current_mapping.values()
+#             if isinstance(data, dict)
+#             and str(data.get("userid")) == str(userid)
+#     ]
+
+#     if user_vector_ids:
+#         display_vector_id = max(user_vector_ids) + 1
+#     else:
+#         display_vector_id = 1
+
+#     image_id = str(uuid.uuid4())
+
+#     current_mapping[str(internal_id)] = {
+#         "userid": userid,
+#         "vector_id": display_vector_id,
+#         "faiss_pos": current_index.ntotal - 1,
+#         "username": username,
+#         "image_id": image_id,
+#         "filename": item["filename"]
+#     }
+
+#     ext = os.path.splitext(item["filename"])[-1] or ".jpg"
+#     save_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+#     with open(save_path, "wb") as f:
+#         f.write(item["photo_file"].read())
+#     print(f"IMAGE SAVED: {save_path}")
+
+#     registered_images.append({
+#         "srno":       display_vector_id,
+#         "vector_id":  display_vector_id,
+#         "image_id":   image_id,
+#         "filename":   item["filename"],
+#         "image_path": save_path
+#     })
+
+#     print("CURRENT MAPPING:")
+#     print(json.dumps(current_mapping, indent=2))
+#     save_database(current_index, current_mapping, index_path, mapping_path)
+#     _db_cache.pop(client_id, None) 
+    
+#     total_time = time.time() - start_time
+#     print(f"--- REGISTRATION COMPLETE | TOTAL TIME: {total_time:.3f}s ---")
+#     print("SAVED INDEX:", index_path)
+#     print("INDEX EXISTS AFTER SAVE:", os.path.exists(index_path))
+#     print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
+#     # return {
+#     #     "success": True,
+#     #     "message": f"Face registered successfully for {username}.",
+#     #     "userid": userid,
+#     #     "username": username,
+#     #     "photos_registered": len(face_vectors),
+#     # }
+#     print("REGISTERED IMAGES:")
+#     print(json.dumps(registered_images, indent=2))
+#     return {
+#         "success": True,
+#         "message": f"Face registered successfully for {username}.",
+#         "userid": userid,
+#         "username": username,
+#         "photos_registered": len(face_vectors),
+#         "images": registered_images
+#     }
     
 from typing import Optional, List
 
@@ -818,7 +1197,6 @@ def verify_blink(raw_faces: list) -> tuple[bool, str]:
     variation = max(ear_values) - min(ear_values)
     print(f"BLINK EAR variation: {variation:.4f}")
     return (variation >= 0.08), f"Blink variation={variation:.3f}"
-
 
 def verify_head_turn(raw_faces: list, direction: str) -> tuple[bool, str]:
     nose_offsets = []
@@ -1118,6 +1496,163 @@ def get_auth_challenge():
 # ============================================================
 # FAST AUTHENTICATE — blink detected = instant match
 # ============================================================
+# @app.post("/authenticate")
+# def authenticate(
+#     clientid: str = Form(...),
+#     photo1: UploadFile = File(...),
+#     photo2: UploadFile = File(...),
+#     photo3: UploadFile = File(...)
+# ):
+#     t0 = time.time()
+#     client_id = str(clientid).strip()
+
+#     paths = get_client_paths(client_id)
+#     index_path   = paths["faiss"]
+#     mapping_path = paths["mapping"]
+
+#     if os.path.exists(index_path):
+#         current_index = faiss.read_index(index_path)
+#     else:
+#         return {"success": False, "matched": False, "message": "No face database found"}
+
+#     if os.path.exists(mapping_path):
+#         with open(mapping_path, "r") as f:
+#             current_mapping = json.load(f)
+#     else:
+#         return {"success": False, "matched": False, "message": "No face database found"}
+
+#     if current_index.ntotal == 0:
+#         return {"success": False, "matched": False, "message": "No registered faces found"}
+
+#     # --- 3 photos process --- (image resize आधीच होतं, fast)
+#     raw_faces   = []
+#     vectors     = []
+#     boxes       = []
+#     ear_values  = []
+
+#     for photo in [photo1, photo2, photo3]:
+#         try:
+#             image = read_upload_image(photo)
+#             vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
+#             vectors.append(vec)
+#             boxes.append(box)
+#             raw_faces.append(raw)
+
+#             lm = getattr(raw, 'landmark_2d_106', None)
+#             if lm is not None:
+#                 lv = abs(lm[35][1] - lm[40][1])
+#                 lh = abs(lm[33][0] - lm[39][0])
+#                 rv = abs(lm[89][1] - lm[94][1])
+#                 rh = abs(lm[87][0] - lm[93][0])
+#                 ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+#                 ear_values.append(ear)
+#         except Exception as e:
+#             print(f"SKIP: {e}")
+#             continue
+
+#     print(f"FACE DETECT: {time.time() - t0:.3f}s")
+
+#     if not vectors:
+#         return {"success": False, "matched": False,
+#                 "show_password_login": False,
+#                 "message": "Face Not Detected"}
+
+#     # --- Blink check — FAST (no loop, direct index) ---
+#     # ear_values = []
+#     # for face in raw_faces:
+#     #     lm = getattr(face, 'landmark_2d_106', None)
+#     #     if lm is None:
+#     #         continue
+#     #     lv = abs(lm[35][1] - lm[40][1])
+#     #     lh = abs(lm[33][0] - lm[39][0])
+#     #     rv = abs(lm[89][1] - lm[94][1])
+#     #     rh = abs(lm[87][0] - lm[93][0])
+#     #     ear_values.append(((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0)
+
+#     print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
+
+#     blink_ok = False
+#     if len(ear_values) >= 2:
+#         variation = max(ear_values) - min(ear_values)
+#         min_ear   = min(ear_values)
+#         print(f"EAR VARIATION: {variation:.4f}, MIN EAR: {min_ear:.4f}")
+#         blink_ok = (variation >= 0.04) or (min_ear < 0.18)
+
+#     print(f"BLINK CHECK: {time.time() - t0:.3f}s")
+
+#     if not blink_ok:
+#         failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#         attempts  = failed_attempts["camera_login"]
+#         remaining = MAX_FACE_ATTEMPTS - attempts
+
+#         # if attempts >= MAX_FACE_ATTEMPTS:
+#         #     failed_attempts["camera_login"] = 0
+#         #     return {"success": False, "matched": False,
+#         #             "show_password_login": True,
+#         #             "message": "Face login failed 3 times. Use username and password."}
+
+#         # return {"success": False, "matched": False,
+#         #         "show_password_login": False,
+#         #         "message": f"Blink not detected. {remaining} attempts left."}
+
+#         return {
+#         "success": False,
+#         "matched": False,
+#         "show_password_login": False,
+#         "message": f"Blink not detected  Just Blink ."
+#     }
+
+#     # --- Blink OK → ONLY middle frame match (skip others) ---
+#     best_vector  = vectors[len(vectors) // 2]
+#     best_box     = boxes[len(boxes) // 2]
+
+#     match, match_status = find_best_user_match(
+#         best_vector, current_index, current_mapping
+#     )
+
+#     print(f"TOTAL AUTH: {time.time() - t0:.3f}s")
+
+#     if match_status == "matched":
+#         user = match["user"]
+#         failed_attempts["camera_login"] = 0
+#         return {
+#             "success":  True, "matched": True,
+#             "message":  f"Welcome {user['username']}",
+#             "userid":   user.get("userid"),
+#             "username": user["username"],
+#             "face_box": best_box
+#         }
+
+#     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#     attempts  = failed_attempts["camera_login"]
+#     remaining = MAX_FACE_ATTEMPTS - attempts
+
+#     if attempts >= MAX_FACE_ATTEMPTS:
+#         failed_attempts["camera_login"] = 0
+#         return {"success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."}
+
+#     return {"success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": best_box}
+#     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
+#     attempts  = failed_attempts["camera_login"]
+#     remaining = MAX_FACE_ATTEMPTS - attempts
+#     face_box  = face_boxes_collected[len(face_boxes_collected) // 2] \
+#                 if face_boxes_collected else None
+
+#     if attempts >= MAX_FACE_ATTEMPTS:
+#         return {"success": False, "matched": False,
+#                 "show_password_login": True,
+#                 "message": "Face login failed 3 times. Use username and password."}
+
+#     return {"success": False, "matched": False,
+#             "show_password_login": False,
+#             "message": f"Face not matched. {remaining} attempts left.",
+#             "face_box": face_box}
+
 @app.post("/authenticate")
 def authenticate(
     clientid: str = Form(...),
@@ -1125,104 +1660,159 @@ def authenticate(
     photo2: UploadFile = File(...),
     photo3: UploadFile = File(...)
 ):
+    import time
+    T = {}  # timing dict
+
     t0 = time.time()
     client_id = str(clientid).strip()
 
+    # --- FAISS Load ---
+    t1 = time.time()
     paths = get_client_paths(client_id)
     index_path   = paths["faiss"]
     mapping_path = paths["mapping"]
 
-    if os.path.exists(index_path):
-        current_index = faiss.read_index(index_path)
-    else:
-        return {"success": False, "matched": False, "message": "No face database found"}
+    # if os.path.exists(index_path):
+    #     current_index = faiss.read_index(index_path)
+    # else:
+    #     return {"success": False, "matched": False, "message": "No face database found"}
 
-    if os.path.exists(mapping_path):
-        with open(mapping_path, "r") as f:
-            current_mapping = json.load(f)
-    else:
-        return {"success": False, "matched": False, "message": "No face database found"}
+    # if os.path.exists(mapping_path):
+    #     with open(mapping_path, "r") as f:
+    #         current_mapping = json.load(f)
+    # else:
+    #     return {"success": False, "matched": False, "message": "No face database found"}
+
+    # T["faiss_load"] = round((time.time() - t1) * 1000)
+    # print(f"⏱ FAISS Load:     {T['faiss_load']}ms")
+    current_index, current_mapping = get_client_db(client_id)
+    T["faiss_load"] = round((time.time() - t1) * 1000)
+    print(f"⏱ FAISS Load: {T['faiss_load']}ms")
 
     if current_index.ntotal == 0:
         return {"success": False, "matched": False, "message": "No registered faces found"}
 
-    # --- 3 photos process --- (image resize आधीच होतं, fast)
-    raw_faces   = []
-    vectors     = []
-    boxes       = []
+    # --- Image Read ---
+    t2 = time.time()
+    raw_faces  = []
+    vectors    = []
+    boxes      = []
+    ear_values = []
 
-    for photo in [photo1, photo2, photo3]:
+    # for i, photo in enumerate([photo1, photo2, photo3], 1):
+    #     tp = time.time()
+    #     try:
+    #         image = read_upload_image(photo)
+    #         T[f"img_read_{i}"] = round((time.time() - tp) * 1000)
+    #         print(f"⏱ Image Read {i}:   {T[f'img_read_{i}']}ms")
+
+    #         # --- Face Detection ---
+    #         td = time.time()
+    #         vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
+    #         T[f"face_detect_{i}"] = round((time.time() - td) * 1000)
+    #         print(f"⏱ Face Detect {i}:  {T[f'face_detect_{i}']}ms")
+
+    #         vectors.append(vec)
+    #         boxes.append(box)
+    #         raw_faces.append(raw)
+
+    #         lm = getattr(raw, 'landmark_2d_106', None)
+    #         if lm is not None:
+    #             lv = abs(lm[35][1] - lm[40][1])
+    #             lh = abs(lm[33][0] - lm[39][0])
+    #             rv = abs(lm[89][1] - lm[94][1])
+    #             rh = abs(lm[87][0] - lm[93][0])
+    #             ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+    #             ear_values.append(ear)
+
+    #     except Exception as e:
+    #         print(f"SKIP photo {i}: {e}")
+    #         continue
+
+    def process_one(photo):
         try:
             image = read_upload_image(photo)
             vec, box, raw = get_face_vector(image, return_box=True, return_raw=True)
-            vectors.append(vec)
-            boxes.append(box)
-            raw_faces.append(raw)
+            lm = getattr(raw, 'landmark_2d_106', None)
+            ear = None
+            if lm is not None:
+                lv = abs(lm[35][1] - lm[40][1])
+                lh = abs(lm[33][0] - lm[39][0])
+                rv = abs(lm[89][1] - lm[94][1])
+                rh = abs(lm[87][0] - lm[93][0])
+                ear = ((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0
+            return vec, box, raw, ear
         except Exception as e:
             print(f"SKIP: {e}")
-            continue
+            return None
 
-    print(f"FACE DETECT: {time.time() - t0:.3f}s")
+    t2 = time.time()
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        results = list(ex.map(process_one, [photo1, photo2, photo3]))
+
+    results = [r for r in results if r is not None]
+    vectors    = [r[0] for r in results]
+    boxes      = [r[1] for r in results]
+    raw_faces  = [r[2] for r in results]
+    ear_values = [r[3] for r in results if r[3] is not None]
+
+    T["all_photos"] = round((time.time() - t2) * 1000)
+    print(f"⏱ All Photos (parallel): {T['all_photos']}ms")
+
+
+    # --- Blink Check ---
+    t3 = time.time()
+    print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
+    #if len(ear_values) >= 2:
+    #    variation = max(ear_values) - min(ear_values)
+    #    min_ear   = min(ear_values)
+    #    print(f"EAR VARIATION: {variation:.4f}")
+    #    print(f"MIN EAR: {min_ear:.4f}")
+    #    blink_ok  = (variation >= 0.10) and (min_ear < 0.22)
+    #    print(f"BLINK OK: {blink_ok}")
+    blink_ok = False
+    if len(ear_values) >= 2:
+        max_ear = max(ear_values)
+        min_ear = min(ear_values)
+        variation = max_ear - min_ear
+        relative_drop = variation / (max_ear + 1e-5)
+        print(f"EAR VARIATION: {variation:.4f}")
+        print(f"MIN EAR: {min_ear:.4f}")
+        print(f"RELATIVE DROP: {relative_drop:.2%}")
+        blink_ok = relative_drop >= 0.25
+        print(f"BLINK OK: {blink_ok}")
+
+    T["blink_check"] = round((time.time() - t3) * 1000)
+    print(f"⏱ Blink Check:    {T['blink_check']}ms")
 
     if not vectors:
         return {"success": False, "matched": False,
                 "show_password_login": False,
                 "message": "Face Not Detected"}
 
-    # --- Blink check — FAST (no loop, direct index) ---
-    ear_values = []
-    for face in raw_faces:
-        lm = getattr(face, 'landmark_2d_106', None)
-        if lm is None:
-            continue
-        lv = abs(lm[35][1] - lm[40][1])
-        lh = abs(lm[33][0] - lm[39][0])
-        rv = abs(lm[89][1] - lm[94][1])
-        rh = abs(lm[87][0] - lm[93][0])
-        ear_values.append(((lv / (lh + 1e-5)) + (rv / (rh + 1e-5))) / 2.0)
-
-    print(f"EAR VALUES: {[f'{e:.3f}' for e in ear_values]}")
-
-    blink_ok = False
-    if len(ear_values) >= 2:
-        variation = max(ear_values) - min(ear_values)
-        print(f"EAR VARIATION: {variation:.4f}")
-        blink_ok = variation >= 0.06  # 0.08 → 0.06 (slightly easier)
-
-    print(f"BLINK CHECK: {time.time() - t0:.3f}s")
-
     if not blink_ok:
-        failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
-        attempts  = failed_attempts["camera_login"]
-        remaining = MAX_FACE_ATTEMPTS - attempts
+        return {"success": False, "matched": False,
+                "show_password_login": False,
+                "message": "Blink not detected. Just Blink."}
 
-        # if attempts >= MAX_FACE_ATTEMPTS:
-        #     failed_attempts["camera_login"] = 0
-        #     return {"success": False, "matched": False,
-        #             "show_password_login": True,
-        #             "message": "Face login failed 3 times. Use username and password."}
+    # --- FAISS Match ---
+    t4 = time.time()
+    best_vector = vectors[len(vectors) // 2]
+    best_box    = boxes[len(boxes) // 2]
+    match, match_status = find_best_user_match(best_vector, current_index, current_mapping)
+    T["faiss_match"] = round((time.time() - t4) * 1000)
+    print(f"⏱ FAISS Match:    {T['faiss_match']}ms")
 
-        # return {"success": False, "matched": False,
-        #         "show_password_login": False,
-        #         "message": f"Blink not detected. {remaining} attempts left."}
+    # --- TOTAL ---
+    T["total"] = round((time.time() - t0) * 1000)
+    print(f"\n{'='*40}")
+    print(f"📊 TIMING SUMMARY:")
+    for k, v in T.items():
+        bar = '█' * (v // 20)
+        print(f"   {k:<20} {v:>5}ms  {bar}")
+    print(f"{'='*40}\n")
 
-        return {
-        "success": False,
-        "matched": False,
-        "show_password_login": False,
-        "message": f"Blink not detected  Just Blink ."
-    }
-
-    # --- Blink OK → ONLY middle frame match (skip others) ---
-    best_vector  = vectors[len(vectors) // 2]
-    best_box     = boxes[len(boxes) // 2]
-
-    match, match_status = find_best_user_match(
-        best_vector, current_index, current_mapping
-    )
-
-    print(f"TOTAL AUTH: {time.time() - t0:.3f}s")
-
+    # --- Result ---
     if match_status == "matched":
         user = match["user"]
         failed_attempts["camera_login"] = 0
@@ -1232,11 +1822,11 @@ def authenticate(
             "userid":   user.get("userid"),
             "username": user["username"],
             "face_box": best_box
+        
         }
 
     failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
     attempts  = failed_attempts["camera_login"]
-    remaining = MAX_FACE_ATTEMPTS - attempts
 
     if attempts >= MAX_FACE_ATTEMPTS:
         failed_attempts["camera_login"] = 0
@@ -1246,25 +1836,9 @@ def authenticate(
 
     return {"success": False, "matched": False,
             "show_password_login": False,
-            "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": best_box}
-    failed_attempts["camera_login"] = failed_attempts.get("camera_login", 0) + 1
-    attempts  = failed_attempts["camera_login"]
-    remaining = MAX_FACE_ATTEMPTS - attempts
-    face_box  = face_boxes_collected[len(face_boxes_collected) // 2] \
-                if face_boxes_collected else None
-
-    if attempts >= MAX_FACE_ATTEMPTS:
-        return {"success": False, "matched": False,
-                "show_password_login": True,
-                "message": "Face login failed 3 times. Use username and password."}
-
-    return {"success": False, "matched": False,
-            "show_password_login": False,
-            "message": f"Face not matched. {remaining} attempts left.",
-            "face_box": face_box}
-
-
+            "message": f"Face not matched. {MAX_FACE_ATTEMPTS - attempts} attempts left.",
+            "face_box": best_box,
+            }
 
 @app.post("/manual-login")
 def manual_login(
@@ -1303,7 +1877,7 @@ def manual_login(
 @app.post("/remove-user")
 def remove_user(
     clientid: str = Form(...),
-    userid: int = Form(...)
+    userid: str = Form(...)
 ):
     client_id = str(clientid)
     paths = get_client_paths(client_id)
@@ -1327,13 +1901,29 @@ def remove_user(
 
     # Find all vector IDs that belong to this userid
     ids_to_remove = set()
+    # for vector_id_str, user_data in current_mapping.items():
+    #     stored_userid = (
+    #         user_data.get("userid")
+    #         if isinstance(user_data, dict)
+    #         else None
+    #     )
+    #     if stored_userid == userid:
+    #         ids_to_remove.add(int(vector_id_str))
     for vector_id_str, user_data in current_mapping.items():
         stored_userid = (
             user_data.get("userid")
             if isinstance(user_data, dict)
             else None
         )
-        if stored_userid == userid:
+
+        print(
+            "VECTOR:", vector_id_str,
+            "STORED:", stored_userid,
+            type(stored_userid)
+        )
+
+        if str(stored_userid) == str(userid):
+            print("MATCH FOUND:", vector_id_str)
             ids_to_remove.add(int(vector_id_str))
 
     if not ids_to_remove:
@@ -1351,110 +1941,33 @@ def remove_user(
 
     # Reconstruct kept vectors from existing index
     kept_vectors = []
+    # for old_id in ids_to_keep:
+    #     vec = current_index.reconstruct(old_id-1)
+    #     kept_vectors.append(vec)
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
+        vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
-
     # Build a fresh index with only the kept vectors
     new_index = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)]["faiss_pos"] = new_pos
+
+
 
     
 
     save_database(new_index, new_mapping, index_path, mapping_path)
+    _db_cache.pop(client_id, None)
 
     return {
         "success": True,
         "message": f"Removed {len(ids_to_remove)} face vector(s) for userid {userid}",
         "userid": userid,
-        "vectors_removed": len(ids_to_remove),
-        "vectors_remaining": new_index.ntotal
-    }
-
-@app.post("/remove-image")
-async def remove_image(
-    clientid: str = Form(...),
-    userid: int = Form(...),
-    image_id: List[UploadFile] = File(...)  # Multiple files accept
-):
-    client_id = str(clientid).strip()
-    paths = get_client_paths(client_id)
-    index_path = paths["faiss"]
-    mapping_path = paths["mapping"]
-
-    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-        return {
-            "success": False,
-            "message": "No face database found for this client"
-        }
-
-    current_index = faiss.read_index(index_path)
-
-    with open(mapping_path, "r") as f:
-        current_mapping = json.load(f)
-
-    # সব files মधून UUID extract करा
-    image_ids = []
-    for file in image_id:
-        raw_name = file.filename
-        uuid_str = os.path.splitext(raw_name)[0]
-        image_ids.append(uuid_str.strip())
-
-    print("REQUEST IMAGE IDs:", image_ids)
-    print("AVAILABLE IMAGE IDS:")
-    for vid, data in current_mapping.items():
-        if isinstance(data, dict):
-            print(vid, data.get("image_id"), data.get("filename"))
-
-    # सगळ्या image_ids साठी vectors find करा
-    ids_to_remove = set()
-    for vector_id, data in current_mapping.items():
-        if not isinstance(data, dict):
-            continue
-        if (
-            data.get("userid") == userid
-            and data.get("image_id") in image_ids
-        ):
-            print("MATCH FOUND:", vector_id, data.get("image_id"))
-            ids_to_remove.add(int(vector_id))
-
-    if not ids_to_remove:
-        return {
-            "success": False,
-            "message": "No matching Image IDs found"
-        }
-
-    ids_to_keep = [
-        int(vid)
-        for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
-    ]
-
-    kept_vectors = []
-    for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
-        kept_vectors.append(vec)
-
-    new_index = faiss.IndexFlatL2(DIMENSION)
-    new_mapping = {}
-
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
-        new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
-
-    print("NEW MAPPING:")
-    print(json.dumps(new_mapping, indent=2))
-
-    save_database(new_index, new_mapping, index_path, mapping_path)
-
-    return {
-        "success": True,
-        "userid": userid,
-        "image_ids_removed": image_ids,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal
     }
@@ -1546,16 +2059,16 @@ def list_users(clientid: str):
         "total_vectors": len(current_mapping),
         "users": users
     }
-@app.post("/remove-user-vector")
-def remove_user_vector(
+@app.post("/delete-face")
+def delete_face(
     clientid: str = Form(...),
-    userid: int = Form(...),
-    vector_ids: str = Form(...)   # comma-separated list of vector IDs e.g. "0,2,5"
+    userid: str = Form(...),
+    vector_ids: str = Form(...)  # comma-separated, 1-based display IDs e.g. "1,2,3"
 ):
     client_id = str(clientid).strip()
     paths = get_client_paths(client_id)
 
-    index_path = paths["faiss"]
+    index_path   = paths["faiss"]
     mapping_path = paths["mapping"]
 
     if not os.path.exists(index_path) or not os.path.exists(mapping_path):
@@ -1565,36 +2078,64 @@ def remove_user_vector(
         }
 
     current_index = faiss.read_index(index_path)
-
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
 
-    # Parse the requested vector IDs to remove
+    # Display ID (1-based) -> internal FAISS ID (0-based)
     try:
         ids_to_remove = set(
-            int(vid.strip())
+            int(vid.strip()) 
             for vid in vector_ids.split(",")
             if vid.strip().isdigit()
         )
+
     except Exception:
         return {
             "success": False,
             "message": "Invalid vector_ids format. Expected comma-separated integers."
         }
-
-    # Validate: ensure each requested vector_id belongs to the given userid
-    invalid_ids = []
+    print("REQUESTED REMOVE IDS:", ids_to_remove)
+    print("CURRENT MAPPING:")
+    print(json.dumps(current_mapping, indent=2))
     for vid in ids_to_remove:
-        user_data = current_mapping.get(str(vid))
-        if user_data is None:
-            invalid_ids.append({"vector_id": vid, "reason": "Vector ID not found"})
-            continue
-        stored_userid = user_data.get("userid") if isinstance(user_data, dict) else None
-        if stored_userid != userid:
+        print(
+            f"CHECKING VECTOR {vid}:",
+            current_mapping.get(str(vid))
+        )
+
+    if not ids_to_remove or any(vid < 0 for vid in ids_to_remove):
+        return {
+            "success": False,
+            "message": "Invalid vector_ids. IDs must be 1 or greater."
+        }
+
+    # Validate: each requested vector_id must exist and belong to this userid
+    invalid_ids = []
+    ids_to_remove_internal = set()
+
+    for vid in ids_to_remove:
+        found = False
+
+        for internal_id, data in current_mapping.items():
+
+            if not isinstance(data, dict):
+                continue
+
+            if (
+                str(data.get("userid")) == str(userid)
+                and data.get("vector_id") == vid
+            ):
+                ids_to_remove_internal.add(int(internal_id))
+                found = True
+                break
+
+        if not found:
             invalid_ids.append({
                 "vector_id": vid,
-                "reason": f"Vector belongs to userid {stored_userid}, not {userid}"
+                "reason": "Vector ID not found for this user"
             })
+        print("REQUESTED DISPLAY IDS:", ids_to_remove)
+        print("INTERNAL IDS TO REMOVE:", ids_to_remove_internal)
 
     if invalid_ids:
         return {
@@ -1603,44 +2144,46 @@ def remove_user_vector(
             "invalid_ids": invalid_ids
         }
 
-    # Safety check: prevent removing ALL vectors for this user 
-    # (use /remove-user for that)
-    user_vector_ids = {
-        int(vid)
-        for vid, data in current_mapping.items()
-        if (isinstance(data, dict) and data.get("userid") == userid)
-    }
-    # if ids_to_remove >= user_vector_ids:
-    #     return {
-    #         "success": False,
-    #         "message": (
-    #             f"Cannot remove all {len(user_vector_ids)} vectors for userid {userid} "
-    #             "via this endpoint. Use /remove-user instead."
-    #         )
-    #     }
-
-    # Collect IDs to keep
+    # IDs to keep
+    # ids_to_keep = [
+    #     int(vid)
+    #     for vid in current_mapping.keys()
+    #     if int(vid) not in ids_to_remove
+    # ]
     ids_to_keep = [
         int(vid)
         for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
+        if int(vid) not in ids_to_remove_internal
     ]
 
     # Reconstruct kept vectors
+    
+    # for old_id in ids_to_keep:
+    #     vec = current_index.reconstruct(old_id-1)
+    #     kept_vectors.append(vec)
+
     kept_vectors = []
+
     for old_id in ids_to_keep:
-        vec = current_index.reconstruct(old_id)
+        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
+        vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
 
-    # Rebuild index and mapping with remapped IDs
-    new_index = faiss.IndexFlatL2(DIMENSION)
+
+
+    # Rebuild index and mapping with remapped (re-sequenced) IDs
+    new_index   = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
-    for new_id, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
+    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(new_id)] = current_mapping[str(old_id)]
+
+        new_mapping[str(old_id)] = current_mapping[str(old_id)]
+        new_mapping[str(old_id)]["faiss_pos"] = new_pos
+
 
     save_database(new_index, new_mapping, index_path, mapping_path)
+    _db_cache.pop(client_id, None)
 
     return {
         "success": True,
@@ -1648,6 +2191,7 @@ def remove_user_vector(
         "userid": userid,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal,
+        #"removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # 1-based display IDs
         "removed_vector_ids": sorted(ids_to_remove)
     }
 
@@ -1669,13 +2213,18 @@ def list_user_vectors(clientid: str, userid: int):
     user_vectors = [
         #{"vector_id": int(vid), "username": data.get("username")}
         {
-            "vector_id": int(vid),
+            #"vector_id": data.get("vector_id"),
+            "vector_id": data.get("vector_id", int(vid) + 1),
             "username": data.get("username"),
             "image_id": data.get("image_id"),
             "filename": data.get("filename")
         }
         for vid, data in current_mapping.items()
-        if isinstance(data, dict) and data.get("userid") == userid
+        #if isinstance(data, dict) and data.get("userid") == userid
+        if (
+            isinstance(data, dict)
+            and str(data.get("userid")) == str(userid)
+            )
     ]
 
     if not user_vectors:
@@ -1683,12 +2232,17 @@ def list_user_vectors(clientid: str, userid: int):
             "success": False,
             "message": f"No vectors found for userid {userid}"
         }
-
+    print("USER VECTORS:")
+    print(json.dumps(user_vectors, indent=2))
     return {
         "success": True,
         "userid": userid,
         "total_vectors": len(user_vectors),
-        "vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
+        #"vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
+        "vectors": sorted(
+            user_vectors,
+            key=lambda v: v.get("vector_id") or 0
+        )
     }
 
 
