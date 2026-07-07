@@ -642,13 +642,13 @@ def login_page():
     )
 
 
-    
 @app.post("/upload-entity")
 def upload_entity(
     clientid: str = Form(...),
     userid: int = Form(...),
     username: str = Form(...),
-    photos: list[UploadFile] = File(...)
+    photos: list[UploadFile] = File(...),
+    vector_id: list[str] = Form(...)   # VB.NET kadun ekek photo sathi SrNo yeईल
 ):
     registered_images = []
     import time
@@ -676,22 +676,34 @@ def upload_entity(
     print("LOGIN CLIENT:", client_id)
     print("LOGIN INDEX:", index_path)
     print("INDEX EXISTS:", os.path.exists(index_path))
+    print("RECEIVED PHOTOS COUNT:", len(photos))
+    print("RECEIVED VECTOR IDS:", vector_id)
+
+    # Safety check: photos ani vector_id chi count match zali pahije
+    if len(photos) != len(vector_id):
+        return {
+            "success": False,
+            "message": f"Mismatch: {len(photos)} photos received but {len(vector_id)} vector_id values received.",
+            "userid": userid,
+            "username": username,
+        }
 
     face_vectors = []
     skipped_photos = []
 
-    for photo_index, photo in enumerate(photos, start=1):
+    for photo_index, (photo, vid) in enumerate(zip(photos, vector_id), start=1):
         try:
             step_start = time.time()
             image = read_upload_image(photo)
             face_vector = get_face_vector(image, return_box=False)
-            print(f"  Photo {photo_index} processed in {time.time() - step_start:.3f}s")
+            print(f"  Photo {photo_index} (vector_id={vid}) processed in {time.time() - step_start:.3f}s")
 
             photo.file.seek(0)
             face_vectors.append({
                 "vector":     face_vector,
                 "filename":   photo.filename,
-                "photo_file": photo.file
+                "photo_file": photo.file,
+                "vector_id":  vid
             })
         except Exception as e:
             skipped_photos.append({
@@ -781,17 +793,8 @@ def upload_entity(
         else:
             internal_id = 0
 
-        user_vector_ids = [
-            data.get("vector_id", 0)
-            for data in current_mapping.values()
-                if isinstance(data, dict)
-                and str(data.get("userid")) == str(userid)
-        ]
-
-        if user_vector_ids:
-            display_vector_id = max(user_vector_ids) + 1
-        else:
-            display_vector_id = 1
+        # Client kadun aलेला vector_id (SrNo) direct vaparला, auto-increment nahi
+        display_vector_id = item["vector_id"]
 
         all_srnos = [
             data.get("srno", 0)
@@ -802,7 +805,7 @@ def upload_entity(
         if all_srnos:
             global_srno = max(all_srnos) + 1
         else:
-            global_srno = 1    
+            global_srno = 1
 
         image_id = str(uuid.uuid4())
 
@@ -823,7 +826,7 @@ def upload_entity(
         print(f"IMAGE SAVED: {save_path}")
 
         registered_images.append({
-            "srno":       global_srno,        
+            "srno":       global_srno,
             "vector_id":  display_vector_id,
             "image_id":   image_id,
             "filename":   item["filename"],
