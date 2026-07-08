@@ -2140,27 +2140,22 @@ def delete_face(
     with open(mapping_path, "r") as f:
         current_mapping = json.load(f)
 
-    # Display ID (1-based) -> internal FAISS ID (0-based)
+    # Parse requested vector_ids (client-facing SrNo, comma-separated)
     try:
         ids_to_remove = set(
-            int(vid.strip()) 
+            int(vid.strip())
             for vid in vector_ids.split(",")
             if vid.strip().isdigit()
         )
-
     except Exception:
         return {
             "success": False,
             "message": "Invalid vector_ids format. Expected comma-separated integers."
         }
+
     print("REQUESTED REMOVE IDS:", ids_to_remove)
     print("CURRENT MAPPING:")
     print(json.dumps(current_mapping, indent=2))
-    for vid in ids_to_remove:
-        print(
-            f"CHECKING VECTOR {vid}:",
-            current_mapping.get(str(vid))
-        )
 
     if not ids_to_remove or any(vid < 0 for vid in ids_to_remove):
         return {
@@ -2182,19 +2177,22 @@ def delete_face(
 
             if (
                 str(data.get("userid")) == str(userid)
-                and data.get("vector_id") == vid
+                and str(data.get("vector_id")) == str(vid)   # ✅ FIXED: string comparison
             ):
                 ids_to_remove_internal.add(int(internal_id))
                 found = True
                 break
+
+        print("CHECKING VECTOR", vid, "-> FOUND:", found)
 
         if not found:
             invalid_ids.append({
                 "vector_id": vid,
                 "reason": "Vector ID not found for this user"
             })
-        print("REQUESTED DISPLAY IDS:", ids_to_remove)
-        print("INTERNAL IDS TO REMOVE:", ids_to_remove_internal)
+
+    print("REQUESTED DISPLAY IDS:", ids_to_remove)
+    print("INTERNAL IDS TO REMOVE:", ids_to_remove_internal)
 
     if invalid_ids:
         return {
@@ -2203,43 +2201,28 @@ def delete_face(
             "invalid_ids": invalid_ids
         }
 
-    # IDs to keep
-    # ids_to_keep = [
-    #     int(vid)
-    #     for vid in current_mapping.keys()
-    #     if int(vid) not in ids_to_remove
-    # ]
+    # IDs to keep (everything except the ones marked for removal)
     ids_to_keep = [
         int(vid)
         for vid in current_mapping.keys()
         if int(vid) not in ids_to_remove_internal
     ]
 
-    # Reconstruct kept vectors
-    
-    # for old_id in ids_to_keep:
-    #     vec = current_index.reconstruct(old_id-1)
-    #     kept_vectors.append(vec)
-
+    # Reconstruct kept vectors from existing FAISS index
     kept_vectors = []
-
     for old_id in ids_to_keep:
         faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
         vec = current_index.reconstruct(faiss_pos)
         kept_vectors.append(vec)
 
-
-
-    # Rebuild index and mapping with remapped (re-sequenced) IDs
+    # Rebuild index and mapping with remapped (re-sequenced) faiss_pos
     new_index   = faiss.IndexFlatL2(DIMENSION)
     new_mapping = {}
 
     for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
         new_index.add(np.array([vec], dtype=np.float32))
-
         new_mapping[str(old_id)] = current_mapping[str(old_id)]
         new_mapping[str(old_id)]["faiss_pos"] = new_pos
-
 
     save_database(new_index, new_mapping, index_path, mapping_path)
     _db_cache.pop(client_id, None)
@@ -2250,10 +2233,8 @@ def delete_face(
         "userid": userid,
         "vectors_removed": len(ids_to_remove),
         "vectors_remaining": new_index.ntotal,
-        #"removed_vector_ids": sorted(v + 1 for v in ids_to_remove)  # 1-based display IDs
         "removed_vector_ids": sorted(ids_to_remove)
     }
-
 @app.get("/list-user-vectors/{clientid}/{userid}")
 def list_user_vectors(clientid: str, userid: int):
     client_id = str(clientid).strip()
