@@ -641,7 +641,6 @@ def login_page():
         }
     )
 
-
 @app.post("/upload-entity")
 def upload_entity(
     clientid: str = Form(...),
@@ -688,11 +687,33 @@ def upload_entity(
             "username": username,
         }
 
+    # ------------------------------------------------------------------
+    # Build set of vector_ids ALREADY registered for THIS userid
+    # (works for any userid — not hardcoded to a specific user)
+    # ------------------------------------------------------------------
+    existing_vector_ids_for_user = set()
+    for data in current_mapping.values():
+        if isinstance(data, dict) and str(data.get("userid")) == str(userid):
+            existing_vector_ids_for_user.add(str(data.get("vector_id")))
+
+    print(f"EXISTING VECTOR IDS FOR userid={userid}:", existing_vector_ids_for_user)
+
     face_vectors = []
     skipped_photos = []
+    duplicate_vector_ids = []   # track skipped duplicates for response
 
     for photo_index, (photo, vid) in enumerate(zip(photos, vector_id), start=1):
         try:
+            # ------------------------------------------------------------
+            # Skip this photo entirely if vector_id already exists
+            # for this userid — no need to even run face detection on it
+            # ------------------------------------------------------------
+            display_vid = str(vid).strip()
+            if display_vid in existing_vector_ids_for_user:
+                print(f"SKIPPING duplicate vector_id={display_vid} for userid={userid}")
+                duplicate_vector_ids.append(display_vid)
+                continue
+
             step_start = time.time()
             image = read_upload_image(photo)
             face_vector = get_face_vector(image, return_box=False)
@@ -705,6 +726,11 @@ def upload_entity(
                 "photo_file": photo.file,
                 "vector_id":  vid
             })
+
+            # Mark as used so duplicates WITHIN the same upload batch
+            # (e.g. same vector_id sent twice in one call) are also skipped
+            existing_vector_ids_for_user.add(display_vid)
+
         except Exception as e:
             skipped_photos.append({
                 "photo_number": photo_index,
@@ -723,12 +749,27 @@ def upload_entity(
             "photos_skipped": len(skipped_photos),
         }
 
+    # ------------------------------------------------------------------
+    # If everything sent was already registered (all duplicates),
+    # tell the client clearly instead of failing on MIN_REGISTRATION_PHOTOS
+    # ------------------------------------------------------------------
+    if not face_vectors and duplicate_vector_ids:
+        return {
+            "success": False,
+            "message": "All submitted vector_ids are already registered for this user. Nothing new to add.",
+            "userid": userid,
+            "username": username,
+            "duplicate_vector_ids_skipped": duplicate_vector_ids,
+            "photos_registered": 0,
+        }
+
     if len(face_vectors) < MIN_REGISTRATION_PHOTOS:
         return {
             "success": False,
-            "message": f"Need at least {MIN_REGISTRATION_PHOTOS} photos.",
+            "message": f"Need at least {MIN_REGISTRATION_PHOTOS} new photos (excluding duplicates).",
             "userid": userid,
             "username": username,
+            "duplicate_vector_ids_skipped": duplicate_vector_ids,
         }
 
     duplicate_found = None
@@ -845,6 +886,8 @@ def upload_entity(
     print("TOTAL FACES AFTER SAVE:", current_index.ntotal)
     print("REGISTERED IMAGES:")
     print(json.dumps(registered_images, indent=2))
+    if duplicate_vector_ids:
+        print("DUPLICATE VECTOR IDS SKIPPED:", duplicate_vector_ids)
 
     response_data = {
         "success": True,
@@ -852,6 +895,7 @@ def upload_entity(
         "userid": userid,
         "username": username,
         "photos_registered": len(face_vectors),
+        "duplicate_vector_ids_skipped": duplicate_vector_ids,
         "images": registered_images
     }
 
