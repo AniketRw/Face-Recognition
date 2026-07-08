@@ -867,7 +867,7 @@ def upload_entity(
         print(f"IMAGE SAVED: {save_path}")
 
         registered_images.append({
-            "srno":       global_srno,
+
             "vector_id":  display_vector_id,
             "image_id":   image_id,
             "filename":   item["filename"],
@@ -2270,10 +2270,8 @@ def list_user_vectors(clientid: str, userid: int):
         current_mapping = json.load(f)
 
     user_vectors = [
-        #{"vector_id": int(vid), "username": data.get("username")}
         {
-            #"vector_id": data.get("vector_id"),
-            "srno":       data.get("srno"),
+
             "vector_id": data.get("vector_id", int(vid) + 1),
             "username": data.get("username"),
             "image_id": data.get("image_id"),
