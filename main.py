@@ -2299,7 +2299,7 @@ def list_user_vectors(clientid: str, userid: int):
         #"vectors": sorted(user_vectors, key=lambda v: v["vector_id"])
         "vectors": sorted(
             user_vectors,
-            key=lambda v: v.get("vector_id") or 0
+            key=lambda v: int(v.get("vector_id") or 0)
         )
     }
 
