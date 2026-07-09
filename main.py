@@ -59,7 +59,7 @@ face_app = FaceAnalysis(
 
 face_app.prepare(
     ctx_id=-1,
-    det_size=(96, 96)
+    det_size=(320, 320)
 )
 print("STEP 3")
 
@@ -297,10 +297,24 @@ def read_upload_image(photo: UploadFile):
         raise ValueError(
             "Invalid image file"
         )
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+
+    l, a, b = cv2.split(lab)
+
+    clahe = cv2.createCLAHE(
+        clipLimit=2.0,
+        tileGridSize=(8,8)
+    )
+
+    l = clahe.apply(l)
+
+    lab = cv2.merge((l,a,b))
+
+    image = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
     # Reduce image size for CPU optimization only if needed
     height, width = image.shape[:2]
-    max_width = 160
+    max_width = 480
 
     if width > max_width:
         scale = max_width / width
