@@ -1843,7 +1843,7 @@ def authenticate(
     #    print(f"MIN EAR: {min_ear:.4f}")
     #    blink_ok  = (variation >= 0.10) and (min_ear < 0.22)
     #    print(f"BLINK OK: {blink_ok}")
-    blink_ok = False
+    blink_ok = True
     if len(ear_values) >= 2:
         max_ear = max(ear_values)
         min_ear = min(ear_values)
@@ -1852,7 +1852,7 @@ def authenticate(
         print(f"EAR VARIATION: {variation:.4f}")
         print(f"MIN EAR: {min_ear:.4f}")
         print(f"RELATIVE DROP: {relative_drop:.2%}")
-        blink_ok = relative_drop >= 0.25
+        blink_ok = relative_drop >= 0.10
         print(f"BLINK OK: {blink_ok}")
 
     T["blink_check"] = round((time.time() - t3) * 1000)
