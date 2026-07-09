@@ -1932,105 +1932,109 @@ def manual_login(
             "success": False,
             "message": "Login failed"
         }
-
 @app.post("/remove-user")
 def remove_user(
     clientid: str = Form(...),
     userid: str = Form(...)
 ):
-    client_id = str(clientid)
-    paths = get_client_paths(client_id)
+    try:
+        client_id = str(clientid).strip()
+        paths = get_client_paths(client_id)
 
-    index_path = paths["faiss"]
-    mapping_path = paths["mapping"]
+        index_path = paths["faiss"]
+        mapping_path = paths["mapping"]
 
-    # Load existing database
-    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+       
+        if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+            return {
+                "success": False,
+                "message": "No face database found for this client"
+            }
+
+        current_index = faiss.read_index(index_path)
+
+        with open(mapping_path, "r") as f:
+            current_mapping = json.load(f)
+
+       
+        ids_to_remove = set()
+
+        for vector_id_str, user_data in current_mapping.items():
+            if not isinstance(user_data, dict):
+                print(f"SKIPPING legacy/non-dict entry: {vector_id_str} -> {user_data}")
+                continue
+
+            stored_userid = user_data.get("userid")
+
+            print(
+                "VECTOR:", vector_id_str,
+                "STORED:", stored_userid,
+                type(stored_userid)
+            )
+
+            if str(stored_userid) == str(userid):
+                print("MATCH FOUND:", vector_id_str)
+                ids_to_remove.add(int(vector_id_str))
+
+        if not ids_to_remove:
+            return {
+                "success": False,
+                "message": f"No face data found for userid {userid} in client {client_id}"
+            }
+
+   
+        ids_to_keep = [
+            int(vid)
+            for vid, data in current_mapping.items()
+            if int(vid) not in ids_to_remove and isinstance(data, dict)
+        ]
+
+       
+        kept_vectors = []
+
+        for old_id in ids_to_keep:
+            entry = current_mapping[str(old_id)]
+
+            if "faiss_pos" not in entry:
+                print(f"SKIPPING entry without faiss_pos: {old_id} -> {entry}")
+                continue
+
+            faiss_pos = entry["faiss_pos"]
+
+            if faiss_pos < 0 or faiss_pos >= current_index.ntotal:
+                print(f"SKIPPING out-of-range faiss_pos: {old_id} -> {faiss_pos}")
+                continue
+
+            vec = current_index.reconstruct(faiss_pos)
+            kept_vectors.append((old_id, vec))
+
+     
+        new_index = faiss.IndexFlatL2(DIMENSION)
+        new_mapping = {}
+
+        for new_pos, (old_id, vec) in enumerate(kept_vectors):
+            new_index.add(np.array([vec], dtype=np.float32))
+            new_mapping[str(old_id)] = current_mapping[str(old_id)]
+            new_mapping[str(old_id)]["faiss_pos"] = new_pos
+
+        save_database(new_index, new_mapping, index_path, mapping_path)
+        _db_cache.pop(client_id, None)
+
         return {
-            "success": False,
-            "message": "No face database found for this client"
+            "success": True,
+            "message": f"Removed {len(ids_to_remove)} face vector(s) for userid {userid}",
+            "userid": userid,
+            "vectors_removed": len(ids_to_remove),
+            "vectors_remaining": new_index.ntotal
         }
 
-    current_index = faiss.read_index(index_path)
-
-    with open(mapping_path, "r") as f:
-        current_mapping = json.load(f)
-
-
-
-    # Find all vector IDs that belong to this userid
-    ids_to_remove = set()
-    # for vector_id_str, user_data in current_mapping.items():
-    #     stored_userid = (
-    #         user_data.get("userid")
-    #         if isinstance(user_data, dict)
-    #         else None
-    #     )
-    #     if stored_userid == userid:
-    #         ids_to_remove.add(int(vector_id_str))
-    for vector_id_str, user_data in current_mapping.items():
-        stored_userid = (
-            user_data.get("userid")
-            if isinstance(user_data, dict)
-            else None
-        )
-
-        print(
-            "VECTOR:", vector_id_str,
-            "STORED:", stored_userid,
-            type(stored_userid)
-        )
-
-        if str(stored_userid) == str(userid):
-            print("MATCH FOUND:", vector_id_str)
-            ids_to_remove.add(int(vector_id_str))
-
-    if not ids_to_remove:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
-            "message": f"No face data found for userid {userid} in client {client_id}"
+            "message": f"Remove user failed: {str(e)}"
         }
-
-    # Collect vector IDs to KEEP
-    ids_to_keep = [
-        int(vid)
-        for vid in current_mapping.keys()
-        if int(vid) not in ids_to_remove
-    ]
-
-    # Reconstruct kept vectors from existing index
-    kept_vectors = []
-    # for old_id in ids_to_keep:
-    #     vec = current_index.reconstruct(old_id-1)
-    #     kept_vectors.append(vec)
-    for old_id in ids_to_keep:
-        faiss_pos = current_mapping[str(old_id)]["faiss_pos"]
-        vec = current_index.reconstruct(faiss_pos)
-        kept_vectors.append(vec)
-    # Build a fresh index with only the kept vectors
-    new_index = faiss.IndexFlatL2(DIMENSION)
-    new_mapping = {}
-
-    for new_pos, (old_id, vec) in enumerate(zip(ids_to_keep, kept_vectors)):
-        new_index.add(np.array([vec], dtype=np.float32))
-        new_mapping[str(old_id)] = current_mapping[str(old_id)]
-        new_mapping[str(old_id)]["faiss_pos"] = new_pos
-
-
-
-    
-
-    save_database(new_index, new_mapping, index_path, mapping_path)
-    _db_cache.pop(client_id, None)
-
-    return {
-        "success": True,
-        "message": f"Removed {len(ids_to_remove)} face vector(s) for userid {userid}",
-        "userid": userid,
-        "vectors_removed": len(ids_to_remove),
-        "vectors_remaining": new_index.ntotal
-    }
-
 @app.get("/debug-paths/{clientid}")
 def debug_paths(clientid: str):
     paths = get_client_paths(clientid)
